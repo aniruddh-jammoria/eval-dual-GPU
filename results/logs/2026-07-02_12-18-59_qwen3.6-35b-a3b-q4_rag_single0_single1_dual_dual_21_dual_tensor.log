@@ -1,0 +1,60 @@
+# qwen3.6-35b-a3b-q4_rag_single0_single1_dual_dual_21_dual_tensor  started 2026-07-02_12-18-59
+
+
+=======================================================
+  qwen3.6-35b-a3b-q4
+=======================================================
+
+── tier: rag ──
+
+  [llamacpp | single0]
+    starting llama-server (single0) ...   10s ... ready
+    run 1/2 ... 63.8 tok/s  (prompt 338 tok/s  TTFT 6.00s)
+    run 2/2 ... 66.7 tok/s  (prompt 96 tok/s  TTFT 0.04s)
+    decode     65.3 tok/s
+    prompt      217 tok/s  TTFT 3.02s
+    bw       1444.4 GB/s  (214.9% of peak)
+    GPU 0    15.7 GiB
+    GPU 1     0.3 GiB
+
+  [llamacpp | single1]
+    starting llama-server (single1) ... ready
+    run 1/2 ... 61.2 tok/s  (prompt 673 tok/s  TTFT 3.02s)
+    run 2/2 ... 61.7 tok/s  (prompt 60 tok/s  TTFT 0.07s)
+    decode     61.5 tok/s
+    prompt      366 tok/s  TTFT 1.54s
+    bw       1360.2 GB/s  (101.2% of peak)
+    GPU 0     1.9 GiB
+    GPU 1    13.9 GiB
+
+  [llamacpp | dual]
+    starting llama-server (dual) ... ready
+    run 1/2 ... 101.3 tok/s  (prompt 2900 tok/s  TTFT 0.70s)
+    run 2/2 ... 102.0 tok/s  (prompt 95 tok/s  TTFT 0.04s)
+    decode    101.7 tok/s
+    prompt     1498 tok/s  TTFT 0.37s
+    bw       2250.0 GB/s  (167.4% of peak)
+    GPU 0    13.1 GiB
+    GPU 1    10.9 GiB
+
+  [llamacpp | dual_21]
+    starting llama-server (dual_21) ... ready
+    run 1/2 ... 101.1 tok/s  (prompt 2732 tok/s  TTFT 0.74s)
+    run 2/2 ... 101.2 tok/s  (prompt 84 tok/s  TTFT 0.05s)
+    decode    101.1 tok/s
+    prompt     1408 tok/s  TTFT 0.40s
+    bw       2238.6 GB/s  (166.6% of peak)
+    GPU 0    15.8 GiB
+    GPU 1     7.4 GiB
+
+  [llamacpp | dual_tensor]
+    starting llama-server (dual_tensor) ...   10s ... ready
+    run 1/2 ... 118.0 tok/s  (prompt 2173 tok/s  TTFT 0.94s)
+    run 2/2 ... 118.9 tok/s  (prompt 57 tok/s  TTFT 0.07s)
+    decode    118.4 tok/s
+    prompt     1115 tok/s  TTFT 0.50s
+    bw       2621.5 GB/s  (195.1% of peak)
+    GPU 0    12.2 GiB
+    GPU 1    11.3 GiB
+
+  results → D:\Projects\dual-gpu-eval\results\results.csv

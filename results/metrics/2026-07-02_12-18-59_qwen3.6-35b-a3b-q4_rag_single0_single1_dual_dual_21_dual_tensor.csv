@@ -1,0 +1,6 @@
+log_file,model,tier,backend,gpu_config,run_1_decode_tok_s,run_1_prompt_tok_s,run_1_ttft_s,run_2_decode_tok_s,run_2_prompt_tok_s,run_2_ttft_s,decode_tok_s,prompt_tok_s,ttft_s,bw_gb_s,bw_pct,gpu0_gib,gpu1_gib
+2026-07-02_12-18-59_qwen3.6-35b-a3b-q4_rag_single0_single1_dual_dual_21_dual_tensor.log,qwen3.6-35b-a3b-q4,rag,llamacpp,single0,63.8,338.0,6.0,66.7,96.0,0.04,65.3,217.0,3.02,1444.4,214.9,15.7,0.3
+2026-07-02_12-18-59_qwen3.6-35b-a3b-q4_rag_single0_single1_dual_dual_21_dual_tensor.log,qwen3.6-35b-a3b-q4,rag,llamacpp,single1,61.2,673.0,3.02,61.7,60.0,0.07,61.5,366.0,1.54,1360.2,101.2,1.9,13.9
+2026-07-02_12-18-59_qwen3.6-35b-a3b-q4_rag_single0_single1_dual_dual_21_dual_tensor.log,qwen3.6-35b-a3b-q4,rag,llamacpp,dual,101.3,2900.0,0.7,102.0,95.0,0.04,101.7,1498.0,0.37,2250.0,167.4,13.1,10.9
+2026-07-02_12-18-59_qwen3.6-35b-a3b-q4_rag_single0_single1_dual_dual_21_dual_tensor.log,qwen3.6-35b-a3b-q4,rag,llamacpp,dual_21,101.1,2732.0,0.74,101.2,84.0,0.05,101.1,1408.0,0.4,2238.6,166.6,15.8,7.4
+2026-07-02_12-18-59_qwen3.6-35b-a3b-q4_rag_single0_single1_dual_dual_21_dual_tensor.log,qwen3.6-35b-a3b-q4,rag,llamacpp,dual_tensor,118.0,2173.0,0.94,118.9,57.0,0.07,118.4,1115.0,0.5,2621.5,195.1,12.2,11.3

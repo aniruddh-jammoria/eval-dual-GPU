@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RTX 5060 Ti × 2 — LLM Benchmark</title>
+<style>
+:root{
+  --bg:#0c0e14;--surf:#131620;--card:#191c28;--border:#23263a;
+  --text:#cdd0e0;--muted:#535770;--accent:#00c98f;--amber:#f0a030;
+  --mono:'SF Mono','Fira Code','Cascadia Code','Consolas',monospace;
+  --sans:system-ui,-apple-system,'Segoe UI',sans-serif;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14px;line-height:1.6;-webkit-font-smoothing:antialiased}
+a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+.wrap{max-width:1160px;margin:0 auto;padding:0 24px}
+header{border-bottom:1px solid var(--border);padding:32px 0 28px}
+.header-inner{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;flex-wrap:wrap}
+.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);margin-bottom:6px}
+h1{font-family:var(--mono);font-size:clamp(20px,4vw,30px);font-weight:600;color:#edf0ff;letter-spacing:-.02em;line-height:1.2}
+h1 span{color:var(--muted);font-weight:400}
+.hw-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:16px}
+.chip{font-family:var(--mono);font-size:11px;padding:3px 9px;border:1px solid var(--border);border-radius:3px;color:var(--muted);background:var(--surf);white-space:nowrap}
+.chip b{color:var(--text);font-weight:600}
+.chip.gpu0{border-color:#2a3a60}.chip.gpu1{border-color:#3a2a60}
+.meta-right{text-align:right;flex-shrink:0}
+.meta-date{font-family:var(--mono);font-size:12px;color:var(--muted)}
+.meta-sw{font-family:var(--mono);font-size:11px;color:var(--muted);margin-top:4px}
+.meta-sw span{color:var(--text)}
+/* stat tiles */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1px;background:var(--border);border:1px solid var(--border);border-radius:6px;overflow:hidden;margin:28px 0}
+.stat{background:var(--card);padding:20px 22px}
+.stat-label{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.stat-value{font-family:var(--mono);font-size:28px;font-weight:700;color:var(--accent);line-height:1;font-variant-numeric:tabular-nums}
+.stat-value.dim{color:var(--text);font-size:24px}
+.stat-sub{font-size:11px;color:var(--muted);margin-top:4px}
+/* metric selector */
+.metric-bar{display:flex;align-items:center;gap:6px;padding:20px 0 14px;flex-wrap:wrap}
+.metric-bar-lbl{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-right:6px;white-space:nowrap}
+.mpill{font-family:var(--mono);font-size:11px;padding:5px 13px;border-radius:20px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;transition:color .12s,border-color .12s,background .12s;white-space:nowrap;line-height:1}
+.mpill:hover{color:var(--text);border-color:color-mix(in srgb,var(--muted) 70%,transparent)}
+.mpill.active{background:var(--accent);color:#080a0f;border-color:var(--accent);font-weight:700}
+.mpill:disabled{opacity:.35;cursor:not-allowed;pointer-events:none}
+.mpill-unit{font-size:9px;opacity:.65;font-weight:400}
+.metric-hint{font-family:var(--mono);font-size:10px;color:var(--muted);padding:0 0 10px;letter-spacing:.02em}
+.metric-hint b{color:var(--text)}
+/* tier tabs */
+.tabs{display:flex;border-bottom:1px solid var(--border)}
+.tab{font-family:var(--mono);font-size:12px;padding:10px 20px;cursor:pointer;border:none;background:none;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;transition:color .15s,border-color .15s;white-space:nowrap}
+.tab:hover{color:var(--text)}.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+.tier-meta{font-size:10px;color:var(--muted);display:block;margin-top:1px}
+.tab.active .tier-meta{color:color-mix(in srgb,var(--accent) 50%,var(--muted))}
+.table-prompt{font-size:12px;color:var(--muted);padding:10px 0 14px;font-style:italic}
+.table-prompt b{color:var(--text);font-style:normal;font-weight:600}
+/* table */
+.table-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+thead th{padding:8px 14px;text-align:right;font-family:var(--mono);font-size:11px;letter-spacing:.06em;color:var(--muted);background:var(--surf);border-bottom:1px solid var(--border);white-space:nowrap}
+thead th.col-model{text-align:left}
+thead th.col-best{color:var(--accent)}
+.th-sub{display:block;font-size:9px;color:var(--border);margin-top:1px;letter-spacing:.04em}
+thead th.col-best .th-sub{color:color-mix(in srgb,var(--accent) 40%,transparent)}
+tbody tr{border-bottom:1px solid var(--border)}
+tbody tr:last-child{border-bottom:none}
+tbody tr:hover td{filter:brightness(1.08)}
+td{padding:0;vertical-align:top}
+td.col-model{padding:10px 14px;min-width:200px;vertical-align:middle}
+.model-name{font-family:var(--mono);font-size:13px;color:var(--text);font-weight:600}
+.model-badges{display:flex;gap:5px;margin-top:4px;flex-wrap:wrap}
+.badge{font-family:var(--mono);font-size:10px;padding:1px 6px;border-radius:2px;background:var(--surf);border:1px solid var(--border);color:var(--muted);letter-spacing:.04em}
+.badge.moe{border-color:#3a2855;color:#a070d0;background:#1a1020}
+td.col-val{padding:9px 14px 4px;text-align:right;min-width:90px}
+.cell-inner{font-family:var(--mono);font-size:14px;font-weight:600;display:flex;align-items:center;justify-content:flex-end;gap:4px}
+.cell-inner.best{font-size:15px}
+.spill-mark{font-size:10px;opacity:.8}
+.cell-dash{color:var(--muted);font-size:13px}
+/* run count badge */
+.run-ct{font-family:var(--mono);font-size:8px;text-align:right;color:var(--muted);opacity:.45;letter-spacing:.04em;padding-bottom:3px}
+.run-ct.stale{color:var(--amber);opacity:.75}
+/* legend + findings */
+.legend{display:flex;gap:20px;flex-wrap:wrap;padding:10px 0 0;font-size:11px;color:var(--muted);border-top:1px solid var(--border)}
+.legend-item{display:flex;align-items:center;gap:5px}
+.legend-swatch{width:10px;height:10px;border-radius:2px;flex-shrink:0}
+.findings{margin:40px 0 0}
+.section-title{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);padding-bottom:12px;border-bottom:1px solid var(--border)}
+.finding-list{list-style:none;display:flex;flex-direction:column}
+.finding{display:grid;grid-template-columns:auto 1fr;gap:0 20px;padding:18px 0;border-bottom:1px solid var(--border);align-items:start}
+.finding:last-child{border-bottom:none}
+.finding-label{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding-top:2px;white-space:nowrap;min-width:100px}
+.finding-body{font-size:13px;line-height:1.65;color:var(--text)}
+.finding-body strong{color:#edf0ff;font-weight:600}
+.num{font-family:var(--mono);color:var(--accent);font-size:13px}
+.num-amber{font-family:var(--mono);color:var(--amber);font-size:13px}
+footer{border-top:1px solid var(--border);margin-top:48px;padding:20px 0;font-size:11px;color:var(--muted)}
+.footer-inner{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
+footer a{color:var(--muted)}footer a:hover{color:var(--text)}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="header-inner">
+      <div>
+        <div class="eyebrow">LLM Inference Benchmark</div>
+        <h1>Dual RTX 5060 Ti <span>/ 16 GB</span></h1>
+        <div class="hw-chips">
+          <span class="chip gpu0"><b>GPU0</b> MSI VENTUS 2X OC &middot; PCIe 4.0 x16 (CPU)</span>
+          <span class="chip gpu1"><b>GPU1</b> ASUS DUAL OC &middot; PCIe 4.0 x2 (chipset)</span>
+          <span class="chip"><b>CPU</b> AMD Ryzen 9 7900</span>
+          <span class="chip"><b>RAM</b> 32 GB DDR5</span>
+          <span class="chip"><b>MB</b> MSI MAG B650 Tomahawk</span>
+        </div>
+      </div>
+      <div class="meta-right">
+        <div class="meta-date">2026-07-04</div>
+        <div class="meta-sw">llama.cpp <span>b9858</span></div>
+        <div class="meta-sw">CUDA <span>13.3</span> &middot; Blackwell <span>sm_120a</span></div>
+        <div class="meta-sw" style="margin-top:6px">2-run average per cell</div>
+      </div>
+    </div>
+  </div>
+</header>
+<main>
+  <div class="wrap">
+    <div class="stats">
+      <div class="stat">
+        <div class="stat-label">Peak decode</div>
+        <div class="stat-value">120.0</div>
+        <div class="stat-sub">tok/s &mdash; Qwen3.6 35B A3B MoE UD, tensor</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Best dual-GPU lift</div>
+        <div class="stat-value">6.6&times;</div>
+        <div class="stat-sub">Gemma 4 31B IT UD: 4.4 → 29.2 tok/s</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Models tested</div>
+        <div class="stat-value dim">8</div>
+        <div class="stat-sub">9B · 12B · 27B · 31B · 35B · incl. 2 MoE</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Configurations</div>
+        <div class="stat-value dim">5</div>
+        <div class="stat-sub">Ollama &middot; GPU0 &middot; GPU1 &middot; Dual &middot; Dual tensor</div>
+      </div>
+    </div>
+
+    <div class="metric-bar" id="metric-bar">
+      <span class="metric-bar-lbl">Metric</span>
+    </div>
+    <div class="metric-hint" id="metric-hint"></div>
+
+    <div class="tabs" id="tabs"></div>
+    <div class="table-prompt" id="tier-prompt"></div>
+    <div class="table-wrap"><table id="results-table"></table></div>
+
+    <div class="legend">
+      <div class="legend-item">
+        <div class="legend-swatch" style="background:#1e3028;border:1px solid #2a5040"></div>
+        faster / higher
+      </div>
+      <div class="legend-item">
+        <div class="legend-swatch" style="background:#1a1308;border:1px solid var(--amber)"></div>
+        <span style="color:var(--amber)">&otimes;</span> CPU RAM spill (VRAM overflow &rarr; DDR5 ~90 GB/s)
+      </div>
+      <div class="legend-item">
+        <div class="legend-swatch" style="background:#1a1020;border:1px solid #3a2855"></div>
+        <span style="color:#a070d0">MoE</span> &mdash; only active experts read per token
+      </div>
+      <div class="legend-item" style="margin-left:auto">
+        <span style="font-family:var(--mono);font-size:9px">&middot;N</span>&nbsp;
+        run count &mdash; <span style="color:var(--amber)">amber</span> = fewer than 2 runs
+      </div>
+    </div>
+
+    <div class="findings">
+      <div class="section-title">Key observations</div>
+      <ul class="finding-list">
+        <li class="finding">
+          <span class="finding-label">Model size</span>
+          <span class="finding-body">Dense models above ~16 GB overflow a single 16 GB GPU into system RAM, dropping decode to <span class="num-amber">4&ndash;10 tok/s</span> (DDR5 ~90 GB/s vs GPU 672 GB/s). Dual GPU eliminates the spill: Gemma 31B goes from <span class="num-amber">4.4</span> to <span class="num">29.2 tok/s</span> &mdash; a <strong>6.6&times; lift</strong>. MoE models are an exception: despite large GGUF files, only ~10&ndash;15% of weights are read per token (active experts), so they reach <span class="num">60&ndash;67 tok/s</span> even on a single GPU.</span>
+        </li>
+        <li class="finding">
+          <span class="finding-label">PCIe lanes</span>
+          <span class="finding-body">GPU0 (PCIe 4.0 x16 from CPU, 32 GB/s) outperforms GPU1 (PCIe 4.0 x2 from chipset, 4 GB/s) by <strong>1&ndash;8%</strong> in decode for VRAM-resident models. For spilling models, both GPUs are <strong>identical</strong> despite the 8&times; PCIe bandwidth gap &mdash; the bottleneck is CPU-side computation on off-GPU layers, not PCIe transfer. TTFT is slower on GPU1 for large prompts due to chipset pipeline latency.</span>
+        </li>
+        <li class="finding">
+          <span class="finding-label">Backend</span>
+          <span class="finding-body">For small dense models, llama.cpp single GPU is <strong>2&ndash;5% faster</strong> in decode. For MoE on a single GPU, Ollama wins by <strong>25&ndash;45%</strong> (Qwen 35B MoE: <span class="num">94.5</span> vs <span class="num-amber">67.0 tok/s</span>) via cuBLAS tensor cores tuned for sparse routing. For 27B+ dense models, llama.cpp dual tensor surpasses Ollama by up to <strong>67%</strong>. Ollama cannot split one inference across two GPUs.</span>
+        </li>
+        <li class="finding">
+          <span class="finding-label">Dual GPU</span>
+          <span class="finding-body">Small models that fit in one GPU: dual provides <strong>no benefit</strong> (1&ndash;3% penalty). Large dense models: dual is <strong>transformative</strong> &mdash; 2&ndash;7&times; by keeping the model in VRAM. MoE: a moderate <strong>35&ndash;55% gain</strong>. The second GPU is mandatory for 27B+ dense models at usable speeds on this hardware.</span>
+        </li>
+        <li class="finding">
+          <span class="finding-label">Tensor split</span>
+          <span class="finding-body"><code style="font-family:var(--mono);font-size:12px;color:var(--accent)">--split-mode tensor</code> runs both GPUs in parallel per layer, doubling effective bandwidth (2 &times; 672 = 1 344 GB/s). Dense models: <strong>50&ndash;70% speedup</strong> over layer split. MoE: <strong>12&ndash;16%</strong> &mdash; sparse activation limits per-token reads so allreduce overhead is proportionally larger. The PCIe x2 slot is not a bottleneck for decode: allreduce data is only ~14 KB per layer per token.</span>
+        </li>
+      </ul>
+    </div>
+  </div>
+</main>
+<footer>
+  <div class="wrap"><div class="footer-inner">
+    <span>Ollama + llama.cpp b9858 &middot; 2-run average &middot; 2026</span>
+    <span><a href="https://github.com/ggml-org/llama.cpp">llama.cpp</a> &middot; <a href="https://ollama.com">Ollama</a></span>
+  </div></div>
+</footer>
+<script>
+const RUNCOUNT = 2;
+const TIERS    = {"chat":{"desc":"~540 tok in \u00b7 512 max out","prompt":"Dracula Ch. I (400 words) \u2014 summarise Harker's first impressions of Eastern Europe","rows":[{"id":"gemma4-12b-qat","model":"Gemma 4 12B IT QAT","quant":"Q4_0","gguf":7.0,"moe":false,"ollama":{"decode":49.4,"prefill":7494.0,"ttft":0.075,"bw":344.4,"watts":null,"spill":false,"runs":2},"gpu0":{"decode":51.1,"prefill":1882.0,"ttft":0.28,"bw":356.5,"watts":null,"spill":false,"runs":2},"gpu1":{"decode":50.2,"prefill":1854.0,"ttft":0.29,"bw":349.9,"watts":null,"spill":false,"runs":1},"dual":{"decode":49.7,"prefill":1932.0,"ttft":0.275,"bw":346.6,"watts":null,"spill":false,"runs":2},"tensor":{"decode":null,"prefill":null,"ttft":null,"bw":null,"watts":null,"spill":false,"runs":0}},{"id":"qwen3.5-9b-q4","model":"Qwen3.5 9B","quant":"Q4_K_M","gguf":5.7,"moe":false,"ollama":{"decode":66.5,"prefill":18197.0,"ttft":0.03,"bw":377.4,"watts":null,"spill":false,"runs":2},"gpu0":{"decode":70.2,"prefill":1190.0,"ttft":0.135,"bw":398.4,"watts":null,"spill":false,"runs":2},"gpu1":{"decode":68.7,"prefill":1154.0,"ttft":0.14,"bw":390.3,"watts":null,"spill":false,"runs":1},"dual":{"decode":68.0,"prefill":1180.0,"ttft":0.14,"bw":386.3,"watts":null,"spill":false,"runs":2},"tensor":{"decode":103.8,"prefill":771.0,"ttft":0.21,"bw":589.9,"watts":null,"spill":false,"runs":1}},{"id":"qwen3.5-9b-q8","model":"Qwen3.5 9B","quant":"Q8_0","gguf":9.5,"moe":false,"ollama":{"decode":42.5,"prefill":8660.0,"ttft":0.06,"bw":405.2,"watts":null,"spill":false,"runs":2},"gpu0":{"decode":45.0,"prefill":1318.0,"ttft":0.12,"bw":429.4,"watts":null,"spill":false,"runs":2},"gpu1":{"decode":44.6,"prefill":1192.0,"ttft":0.14,"bw":425.0,"watts":null,"spill":false,"runs":1},"dual":{"decode":44.2,"prefill":1218.0,"ttft":0.14,"bw":421.2,"watts":null,"spill":false,"runs":2},"tensor":{"decode":72.9,"prefill":803.0,"ttft":0.2,"bw":694.9,"watts":null,"spill":false,"runs":1}},{"id":"qwen3.6-27b-q4","model":"Qwen3.6 27B","quant":"Q4_K_M","gguf":16.8,"moe":false,"ollama":{"decode":22.7,"prefill":794.0,"ttft":0.68,"bw":382.1,"watts":null,"spill":false,"runs":2},"gpu0":{"decode":9.9,"prefill":225.0,"ttft":0.745,"bw":167.5,"watts":null,"spill":true,"runs":2},"gpu1":{"decode":10.0,"prefill":126.0,"ttft":1.27,"bw":167.5,"watts":null,"spill":false,"runs":1},"dual":{"decode":23.0,"prefill":388.0,"ttft":0.415,"bw":386.4,"watts":null,"spill":false,"runs":2},"tensor":{"decode":37.7,"prefill":308.0,"ttft":0.52,"bw":633.5,"watts":null,"spill":false,"runs":1}},{"id":"qwen3.6-27b-q6","model":"Qwen3.6 27B","quant":"Q6_K","gguf":22.7,"moe":false,"ollama":{"decode":17.6,"prefill":690.0,"ttft":0.78,"bw":395.6,"watts":null,"spill":false,"runs":2},"gpu0":{"decode":5.0,"prefill":146.0,"ttft":1.175,"bw":113.4,"watts":null,"spill":true,"runs":2},"gpu1":{"decode":5.0,"prefill":69.0,"ttft":2.32,"bw":113.4,"watts":null,"spill":false,"runs":1},"dual":{"decode":17.8,"prefill":334.0,"ttft":0.48,"bw":399.8,"watts":null,"spill":false,"runs":2},"tensor":{"decode":30.4,"prefill":293.0,"ttft":0.54,"bw":683.9,"watts":null,"spill":false,"runs":1}},{"id":"gemma4-26b-moe-q4","model":"Gemma 4 26B A4B IT MoE UD","quant":"Q4_K_M","gguf":16.9,"moe":true,"ollama":{"decode":78.8,"prefill":7683.0,"ttft":0.07,"bw":1336.7,"watts":null,"spill":false,"runs":2},"gpu0":{"decode":59.2,"prefill":824.0,"ttft":0.76,"bw":1003.9,"watts":null,"spill":true,"runs":2},"gpu1":{"decode":56.0,"prefill":395.0,"ttft":1.35,"bw":949.2,"watts":null,"spill":false,"runs":1},"dual":{"decode":86.2,"prefill":2284.0,"ttft":0.24,"bw":1460.9,"watts":null,"spill":false,"runs":2},"tensor":{"decode":96.7,"prefill":1391.0,"ttft":0.39,"bw":1639.0,"watts":null,"spill":false,"runs":1}},{"id":"qwen3.6-35b-a3b-q4","model":"Qwen3.6 35B A3B MoE UD","quant":"Q4_K_M","gguf":22.1,"moe":true,"ollama":{"decode":94.0,"prefill":11218.0,"ttft":0.05,"bw":2081.1,"watts":null,"spill":false,"runs":2},"gpu0":{"decode":65.7,"prefill":198.0,"ttft":0.88,"bw":1453.1,"watts":null,"spill":true,"runs":2},"gpu1":{"decode":62.3,"prefill":146.0,"ttft":1.19,"bw":1378.1,"watts":null,"spill":false,"runs":1},"dual":{"decode":102.8,"prefill":911.0,"ttft":0.175,"bw":2275.7,"watts":null,"spill":false,"runs":2},"tensor":{"decode":120.0,"prefill":754.0,"ttft":0.22,"bw":2656.3,"watts":null,"spill":false,"runs":1}},{"id":"gemma4-31b-q5","model":"Gemma 4 31B IT UD","quant":"Q5_K_XL","gguf":22.1,"moe":false,"ollama":{"decode":17.5,"prefill":730.0,"ttft":0.73,"bw":382.7,"watts":null,"spill":false,"runs":1},"gpu0":{"decode":4.4,"prefill":274.0,"ttft":1.95,"bw":97.4,"watts":null,"spill":true,"runs":1},"gpu1":{"decode":4.4,"prefill":105.0,"ttft":5.05,"bw":96.6,"watts":null,"spill":false,"runs":1},"dual":{"decode":17.6,"prefill":660.0,"ttft":0.81,"bw":384.9,"watts":null,"spill":false,"runs":1},"tensor":{"decode":29.2,"prefill":531.0,"ttft":1.0,"bw":640.0,"watts":null,"spill":false,"runs":1}}]},"rag":{"desc":"~2 000 tok in \u00b7 1 024 max out","prompt":"Dracula Ch. I (1 600 words) \u2014 list every warning or sign of danger before Castle Dracula","rows":[{"id":"gemma4-12b-qat","model":"Gemma 4 12B IT QAT","quant":"Q4_0","gguf":7.0,"moe":false,"ollama":{"decode":47.6,"prefill":44983.0,"ttft":0.04,"bw":331.9,"watts":null,"spill":false,"runs":1},"gpu0":{"decode":48.3,"prefill":1106.0,"ttft":0.47,"bw":336.8,"watts":null,"spill":false,"runs":1},"gpu1":{"decode":47.0,"prefill":1084.0,"ttft":0.48,"bw":327.6,"watts":null,"spill":false,"runs":1},"dual":{"decode":46.5,"prefill":1100.0,"ttft":0.48,"bw":324.4,"watts":null,"spill":false,"runs":1},"tensor":{"decode":null,"prefill":null,"ttft":null,"bw":null,"watts":null,"spill":false,"runs":0}},{"id":"qwen3.5-9b-q4","model":"Qwen3.5 9B","quant":"Q4_K_M","gguf":5.7,"moe":false,"ollama":{"decode":67.3,"prefill":5346.0,"ttft":0.38,"bw":382.1,"watts":null,"spill":false,"runs":1},"gpu0":{"decode":68.4,"prefill":1452.0,"ttft":0.38,"bw":388.6,"watts":null,"spill":false,"runs":1},"gpu1":{"decode":67.8,"prefill":1394.0,"ttft":0.4,"bw":384.9,"watts":null,"spill":false,"runs":1},"dual":{"decode":66.6,"prefill":1409.0,"ttft":0.39,"bw":378.5,"watts":null,"spill":false,"runs":1},"tensor":{"decode":101.5,"prefill":924.0,"ttft":0.6,"bw":576.5,"watts":null,"spill":false,"runs":1}},{"id":"qwen3.5-9b-q8","model":"Qwen3.5 9B","quant":"Q8_0","gguf":9.5,"moe":false,"ollama":{"decode":42.9,"prefill":4685.0,"ttft":0.43,"bw":408.4,"watts":null,"spill":false,"runs":1},"gpu0":{"decode":44.3,"prefill":1575.0,"ttft":0.35,"bw":421.6,"watts":null,"spill":false,"runs":1},"gpu1":{"decode":44.3,"prefill":1505.0,"ttft":0.37,"bw":422.1,"watts":null,"spill":false,"runs":1},"dual":{"decode":43.7,"prefill":1529.0,"ttft":0.36,"bw":416.7,"watts":null,"spill":false,"runs":1},"tensor":{"decode":72.5,"prefill":963.0,"ttft":0.58,"bw":690.3,"watts":null,"spill":false,"runs":1}},{"id":"qwen3.6-27b-q4","model":"Qwen3.6 27B","quant":"Q4_K_M","gguf":16.8,"moe":false,"ollama":{"decode":22.5,"prefill":2897.0,"ttft":0.7,"bw":378.8,"watts":null,"spill":false,"runs":1},"gpu0":{"decode":9.9,"prefill":334.0,"ttft":1.685,"bw":165.4,"watts":null,"spill":true,"runs":2},"gpu1":{"decode":9.8,"prefill":238.0,"ttft":2.345,"bw":164.9,"watts":null,"spill":false,"runs":2},"dual":{"decode":22.8,"prefill":454.0,"ttft":1.22,"bw":383.4,"watts":null,"spill":false,"runs":2},"tensor":{"decode":37.2,"prefill":352.0,"ttft":1.58,"bw":626.8,"watts":null,"spill":false,"runs":2}},{"id":"qwen3.6-27b-q6","model":"Qwen3.6 27B","quant":"Q6_K","gguf":22.6,"moe":false,"ollama":{"decode":17.5,"prefill":2616.0,"ttft":0.78,"bw":395.0,"watts":null,"spill":false,"runs":1},"gpu0":{"decode":5.0,"prefill":240.0,"ttft":2.37,"bw":112.8,"watts":null,"spill":true,"runs":1},"gpu1":{"decode":5.0,"prefill":154.0,"ttft":3.62,"bw":112.9,"watts":null,"spill":false,"runs":1},"dual":{"decode":17.7,"prefill":397.0,"ttft":1.4,"bw":397.9,"watts":null,"spill":false,"runs":1},"tensor":{"decode":30.2,"prefill":334.0,"ttft":1.66,"bw":681.0,"watts":null,"spill":false,"runs":1}},{"id":"gemma4-26b-moe-q4","model":"Gemma 4 26B A4B IT MoE UD","quant":"Q4_K_M","gguf":16.9,"moe":true,"ollama":{"decode":76.1,"prefill":67714.0,"ttft":0.03,"bw":1289.7,"watts":null,"spill":false,"runs":1},"gpu0":{"decode":56.5,"prefill":714.0,"ttft":0.73,"bw":957.1,"watts":null,"spill":true,"runs":1},"gpu1":{"decode":53.6,"prefill":551.0,"ttft":0.95,"bw":908.9,"watts":null,"spill":false,"runs":1},"dual":{"decode":80.1,"prefill":1663.0,"ttft":0.31,"bw":1357.8,"watts":null,"spill":false,"runs":1},"tensor":{"decode":92.8,"prefill":901.0,"ttft":0.58,"bw":1572.4,"watts":null,"spill":false,"runs":1}},{"id":"qwen3.6-35b-a3b-q4","model":"Qwen3.6 35B A3B MoE UD","quant":"Q4_K_M","gguf":22.1,"moe":true,"ollama":{"decode":96.8,"prefill":4644.0,"ttft":0.44,"bw":2141.8,"watts":null,"spill":false,"runs":1},"gpu0":{"decode":66.2,"prefill":346.0,"ttft":2.11,"bw":1464.0,"watts":null,"spill":true,"runs":2},"gpu1":{"decode":61.8,"prefill":366.0,"ttft":1.545,"bw":1366.2,"watts":null,"spill":false,"runs":2},"dual":{"decode":101.8,"prefill":1500.0,"ttft":0.37,"bw":2253.3,"watts":null,"spill":false,"runs":2},"tensor":{"decode":119.3,"prefill":1114.0,"ttft":0.5,"bw":2641.9,"watts":null,"spill":false,"runs":2}},{"id":"gemma4-31b-q5","model":"Gemma 4 31B IT UD","quant":"Q5_K_XL","gguf":21.8,"moe":false,"ollama":{"decode":16.9,"prefill":2157.0,"ttft":0.93,"bw":370.7,"watts":null,"spill":false,"runs":1},"gpu0":{"decode":4.2,"prefill":247.0,"ttft":2.16,"bw":92.7,"watts":null,"spill":true,"runs":2},"gpu1":{"decode":4.2,"prefill":130.0,"ttft":4.025,"bw":91.0,"watts":null,"spill":false,"runs":2},"dual":{"decode":16.6,"prefill":387.0,"ttft":1.35,"bw":362.1,"watts":null,"spill":false,"runs":2},"tensor":{"decode":27.8,"prefill":322.0,"ttft":1.62,"bw":608.5,"watts":null,"spill":false,"runs":2}}]},"code":{"desc":"~155 tok in \u00b7 1 024 max out","prompt":"Implement Python RateLimiter \u2014 sliding-window, decorator, context manager, thread-safe","rows":[{"id":"gemma4-12b-qat","model":"Gemma 4 12B IT QAT","quant":"Q4_0","gguf":7.0,"moe":false,"ollama":{"decode":50.7,"prefill":2356.0,"ttft":0.07,"bw":353.8,"watts":null,"spill":false,"runs":1},"gpu0":{"decode":52.3,"prefill":1229.0,"ttft":0.13,"bw":364.9,"watts":null,"spill":false,"runs":1},"gpu1":{"decode":50.8,"prefill":1140.0,"ttft":0.14,"bw":354.0,"watts":null,"spill":false,"runs":1},"dual":{"decode":50.3,"prefill":1263.0,"ttft":0.12,"bw":351.1,"watts":null,"spill":false,"runs":1},"tensor":{"decode":null,"prefill":null,"ttft":null,"bw":null,"watts":null,"spill":false,"runs":0}},{"id":"qwen3.5-9b-q4","model":"Qwen3.5 9B","quant":"Q4_K_M","gguf":5.7,"moe":false,"ollama":{"decode":64.3,"prefill":2654.0,"ttft":0.07,"bw":365.5,"watts":null,"spill":false,"runs":1},"gpu0":{"decode":68.4,"prefill":797.0,"ttft":0.07,"bw":388.5,"watts":null,"spill":false,"runs":1},"gpu1":{"decode":68.7,"prefill":670.0,"ttft":0.08,"bw":390.5,"watts":null,"spill":false,"runs":1},"dual":{"decode":67.6,"prefill":701.0,"ttft":0.08,"bw":384.0,"watts":null,"spill":false,"runs":1},"tensor":{"decode":102.6,"prefill":488.0,"ttft":0.11,"bw":582.8,"watts":null,"spill":false,"runs":1}},{"id":"qwen3.5-9b-q8","model":"Qwen3.5 9B","quant":"Q8_0","gguf":9.5,"moe":false,"ollama":{"decode":43.0,"prefill":2446.0,"ttft":0.06,"bw":409.2,"watts":null,"spill":false,"runs":1},"gpu0":{"decode":44.8,"prefill":782.0,"ttft":0.07,"bw":427.1,"watts":null,"spill":false,"runs":1},"gpu1":{"decode":44.7,"prefill":683.0,"ttft":0.08,"bw":425.6,"watts":null,"spill":false,"runs":1},"dual":{"decode":44.2,"prefill":722.0,"ttft":0.08,"bw":420.7,"watts":null,"spill":false,"runs":1},"tensor":{"decode":72.8,"prefill":462.0,"ttft":0.11,"bw":693.3,"watts":null,"spill":false,"runs":1}},{"id":"qwen3.6-27b-q4","model":"Qwen3.6 27B","quant":"Q4_K_M","gguf":16.8,"moe":false,"ollama":{"decode":22.6,"prefill":1150.0,"ttft":0.13,"bw":380.3,"watts":null,"spill":false,"runs":1},"gpu0":{"decode":10.0,"prefill":109.0,"ttft":0.5,"bw":167.7,"watts":null,"spill":true,"runs":1},"gpu1":{"decode":10.0,"prefill":50.0,"ttft":1.03,"bw":167.8,"watts":null,"spill":false,"runs":1},"dual":{"decode":23.0,"prefill":264.0,"ttft":0.2,"bw":386.2,"watts":null,"spill":false,"runs":1},"tensor":{"decode":37.8,"prefill":198.0,"ttft":0.26,"bw":635.8,"watts":null,"spill":false,"runs":1}},{"id":"qwen3.6-27b-q6","model":"Qwen3.6 27B","quant":"Q6_K","gguf":22.5,"moe":false,"ollama":{"decode":17.6,"prefill":978.0,"ttft":0.16,"bw":396.4,"watts":null,"spill":false,"runs":1},"gpu0":{"decode":5.1,"prefill":47.0,"ttft":1.09,"bw":114.6,"watts":null,"spill":true,"runs":1},"gpu1":{"decode":5.0,"prefill":26.0,"ttft":2.02,"bw":113.0,"watts":null,"spill":false,"runs":1},"dual":{"decode":17.8,"prefill":238.0,"ttft":0.23,"bw":400.3,"watts":null,"spill":false,"runs":1},"tensor":{"decode":30.5,"prefill":203.0,"ttft":0.26,"bw":687.0,"watts":null,"spill":false,"runs":1}},{"id":"gemma4-26b-moe-q4","model":"Gemma 4 26B A4B IT MoE UD","quant":"Q4_K_M","gguf":17.0,"moe":true,"ollama":{"decode":83.0,"prefill":2871.0,"ttft":0.06,"bw":1406.4,"watts":null,"spill":false,"runs":1},"gpu0":{"decode":59.8,"prefill":380.0,"ttft":0.51,"bw":1013.9,"watts":null,"spill":true,"runs":1},"gpu1":{"decode":56.2,"prefill":160.0,"ttft":0.99,"bw":952.0,"watts":null,"spill":false,"runs":1},"dual":{"decode":87.2,"prefill":1152.0,"ttft":0.15,"bw":1477.6,"watts":null,"spill":false,"runs":1},"tensor":{"decode":97.3,"prefill":791.0,"ttft":0.21,"bw":1648.9,"watts":null,"spill":false,"runs":1}},{"id":"qwen3.6-35b-a3b-q4","model":"Qwen3.6 35B A3B MoE UD","quant":"Q4_K_M","gguf":22.1,"moe":true,"ollama":{"decode":96.4,"prefill":3188.0,"ttft":0.05,"bw":2134.4,"watts":null,"spill":false,"runs":1},"gpu0":{"decode":67.0,"prefill":109.0,"ttft":0.63,"bw":1482.7,"watts":null,"spill":true,"runs":1},"gpu1":{"decode":62.2,"prefill":73.0,"ttft":0.94,"bw":1375.8,"watts":null,"spill":false,"runs":1},"dual":{"decode":103.1,"prefill":460.0,"ttft":0.11,"bw":2281.1,"watts":null,"spill":false,"runs":1},"tensor":{"decode":119.3,"prefill":370.0,"ttft":0.14,"bw":2641.5,"watts":null,"spill":false,"runs":1}},{"id":"gemma4-31b-q5","model":"Gemma 4 31B IT UD","quant":"Q5_K_XL","gguf":21.8,"moe":false,"ollama":{"decode":17.6,"prefill":821.0,"ttft":0.2,"bw":385.3,"watts":null,"spill":false,"runs":1},"gpu0":{"decode":4.5,"prefill":96.0,"ttft":1.78,"bw":98.2,"watts":null,"spill":true,"runs":1},"gpu1":{"decode":4.4,"prefill":36.0,"ttft":4.39,"bw":96.7,"watts":null,"spill":false,"runs":1},"dual":{"decode":17.7,"prefill":436.0,"ttft":0.37,"bw":388.2,"watts":null,"spill":false,"runs":1},"tensor":{"decode":29.5,"prefill":339.0,"ttft":0.47,"bw":645.3,"watts":null,"spill":false,"runs":1}}]}};
+const GMAX     = {"decode":120.0,"prefill":67714.0,"ttft":5.05,"bw":2656.3,"watts":1.0};
+
+const COLS = [
+  {id:'ollama', label:'Ollama',     sub:'auto'},
+  {id:'gpu0',   label:'LC GPU0',   sub:'MSI · x8'},
+  {id:'gpu1',   label:'LC GPU1',   sub:'ASUS · x2'},
+  {id:'dual',   label:'LC Dual',   sub:'layer split'},
+  {id:'tensor', label:'LC Dual ⊗', sub:'tensor split', best:true},
+];
+
+const METRICS = [
+  {id:'decode',  label:'Decode',    unit:'tok/s', higher:true,  fmt:v=>v.toFixed(1),
+    hint:'Tokens generated per second — primary perf metric'},
+  {id:'prefill', label:'Prefill',   unit:'tok/s', higher:true,  fmt:v=>v.toFixed(0),
+    hint:'Prompt tokens processed per second — determines TTFT (run-2 KV cache warm)'},
+  {id:'ttft',    label:'TTFT',      unit:'s',     higher:false, fmt:v=>v.toFixed(3),
+    hint:'Time to first token in seconds — lower is better'},
+  {id:'bw',      label:'Bandwidth', unit:'GB/s',  higher:true,  fmt:v=>v.toFixed(1),
+    hint:'Effective memory bandwidth used — GGUF size × decode tok/s'},
+  {id:'watts',   label:'Power',     unit:'W avg', higher:false, fmt:v=>v.toFixed(1),
+    hint:'Average GPU power draw (both GPUs total) during inference — lower = more efficient',
+    nodata: true},
+];
+
+let activeMet  = 'decode';
+let activeTier = Object.keys(TIERS)[0];
+
+function lerp(a,b,t){return a+(b-a)*Math.max(0,Math.min(1,t))}
+
+function cellColor(val, spill, metId){
+  if(val===null) return{bg:'transparent',fg:'var(--muted)'};
+  const met=METRICS.find(m=>m.id===metId);
+  const maxV=GMAX[metId]||1;
+  let t=Math.max(0,Math.min(1,val/maxV));
+  if(!met.higher) t=1-t;
+  if(spill&&met.higher){
+    return{
+      bg:`rgb(${Math.round(lerp(18,32,t))},${Math.round(lerp(14,22,t))},${Math.round(lerp(6,10,t))})`,
+      fg:`hsl(35,${Math.round(lerp(25,88,t))}%,${Math.round(lerp(30,65,t))}%)`,
+    };
+  }
+  return{
+    bg:`rgb(${Math.round(lerp(16,10,t))},${Math.round(lerp(18,42,t))},${Math.round(lerp(26,34,t))})`,
+    fg:`hsl(162,${Math.round(lerp(5,92,t))}%,${Math.round(lerp(28,62,t))}%)`,
+  };
+}
+
+function renderTable(){
+  const tier=TIERS[activeTier];
+  const met=METRICS.find(m=>m.id===activeMet);
+
+  document.getElementById('tier-prompt').innerHTML='<b>Prompt:</b> '+tier.prompt;
+  document.getElementById('metric-hint').innerHTML=
+    '<b>'+met.label+' ('+met.unit+')</b> — '+met.hint;
+
+  let html='<thead><tr><th class="col-model">Model</th>';
+  COLS.forEach(c=>{
+    html+=`<th class="col-val${c.best?' col-best':''}">
+      ${c.label}<span class="th-sub">${c.sub}</span></th>`;
+  });
+  html+='</tr></thead><tbody>';
+
+  tier.rows.forEach(row=>{
+    const vals=COLS.map(c=>{
+      const d=row[c.id]||{};
+      const v=d[activeMet];
+      return(v!==null&&v!==undefined)?v:null;
+    });
+    const valid=vals.filter(v=>v!==null);
+    const rowBest=valid.length
+      ?(met.higher?Math.max(...valid):Math.min(...valid))
+      :null;
+
+    html+=`<tr><td class="col-model">
+      <div class="model-name">${row.model}</div>
+      <div class="model-badges">
+        ${row.gguf?`<span class="badge">${row.gguf} GB</span>`:''}
+        <span class="badge">${row.quant}</span>
+        ${row.moe?'<span class="badge moe">MoE</span>':''}
+      </div></td>`;
+
+    COLS.forEach(c=>{
+      const d=row[c.id]||{};
+      const val=(d[activeMet]!==null&&d[activeMet]!==undefined)?d[activeMet]:null;
+      const spill=d.spill||false;
+      const runs=d.runs||0;
+      const{bg,fg}=cellColor(val,spill,activeMet);
+      const isBest=val!==null&&val===rowBest&&valid.length>1;
+      const spillMark=(spill&&met.higher)?'<span class="spill-mark" style="color:var(--amber)">⊗</span>':'';
+      const dispVal=val===null
+        ?'<span class="cell-dash">—</span>'
+        :`<span>${met.fmt(val)}</span>${spillMark}`;
+      const runCls=runs>0&&runs<RUNCOUNT?' stale':'';
+      const runBadge=runs>0?`<div class="run-ct${runCls}">·${runs}</div>`:'';
+      html+=`<td class="col-val" style="background:${bg}">
+        <div class="cell-inner${isBest?' best':''}" style="color:${fg}">${dispVal}</div>
+        ${runBadge}</td>`;
+    });
+    html+='</tr>';
+  });
+  html+='</tbody>';
+  document.getElementById('results-table').innerHTML=html;
+}
+
+// ── Metric pills ──────────────────────────────────────────────────────────────
+const metricBar=document.getElementById('metric-bar');
+METRICS.forEach((met,i)=>{
+  const btn=document.createElement('button');
+  btn.className='mpill'+(i===0?' active':'');
+  btn.dataset.met=met.id;
+  btn.disabled=met.nodata===true;
+  btn.title=met.nodata?'No GPU power data recorded (requires pynvml)':'';
+  btn.innerHTML=met.label+'<span class="mpill-unit"> '+met.unit+'</span>';
+  btn.addEventListener('click',()=>{
+    metricBar.querySelectorAll('.mpill').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    activeMet=met.id;
+    renderTable();
+  });
+  metricBar.appendChild(btn);
+});
+
+// ── Tier tabs ─────────────────────────────────────────────────────────────────
+const tabsEl=document.getElementById('tabs');
+Object.entries(TIERS).forEach(([key,tier],i)=>{
+  const btn=document.createElement('button');
+  btn.className='tab'+(i===0?' active':'');
+  btn.dataset.tier=key;
+  btn.innerHTML=(tier.label||key)+'<span class="tier-meta">'+tier.desc+'</span>';
+  btn.addEventListener('click',()=>{
+    tabsEl.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+    btn.classList.add('active');
+    activeTier=key;
+    renderTable();
+  });
+  tabsEl.appendChild(btn);
+});
+
+renderTable();
+</script>
+</body>
+</html>

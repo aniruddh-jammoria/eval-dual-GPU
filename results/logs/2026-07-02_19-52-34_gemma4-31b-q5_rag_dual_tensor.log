@@ -1,0 +1,20 @@
+# gemma4-31b-q5_rag_dual_tensor  started 2026-07-02_19-52-34
+
+
+=======================================================
+  gemma4-31b-q5
+=======================================================
+
+── tier: rag ──
+
+  [llamacpp | dual_tensor]
+    starting llama-server (dual_tensor) ...   10s ... ready
+    run 1/2 ... 27.7 tok/s  (prompt 636 tok/s  TTFT 3.14s)
+    run 2/2 ... 27.8 tok/s  (prompt 17 tok/s  TTFT 0.06s)
+    decode     27.8 tok/s
+    prompt      327 tok/s  TTFT 1.60s
+    bw        607.9 GB/s  (45.2% of peak)
+    GPU 0    15.7 GiB
+    GPU 1    14.7 GiB
+
+  results → D:\Projects\dual-gpu-eval\results\results.csv

@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Models — GGUFs are multi-GB, never commit
+models/
+*.gguf
+
+# Results — responses are local only; metrics CSVs and results.csv ARE committed
+results/responses/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+*.code-workspace

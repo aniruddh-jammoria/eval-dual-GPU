@@ -1,0 +1,60 @@
+# qwen3.6-27b-q4_rag_single0_single1_dual_dual_21_dual_tensor  started 2026-07-02_12-25-29
+
+
+=======================================================
+  qwen3.6-27b-q4
+=======================================================
+
+── tier: rag ──
+
+  [llamacpp | single0]
+    starting llama-server (single0) ...   10s ... ready
+    run 1/2 ... 9.8 tok/s  (prompt 643 tok/s  TTFT 3.16s)
+    run 2/2 ... 9.9 tok/s  (prompt 16 tok/s  TTFT 0.25s)
+    decode      9.9 tok/s
+    prompt      329 tok/s  TTFT 1.71s
+    bw        165.7 GB/s  (24.7% of peak)
+    GPU 0    15.4 GiB
+    GPU 1     0.3 GiB
+
+  [llamacpp | single1]
+    starting llama-server (single1) ... ready
+    run 1/2 ... 9.9 tok/s  (prompt 462 tok/s  TTFT 4.40s)
+    run 2/2 ... 9.8 tok/s  (prompt 14 tok/s  TTFT 0.28s)
+    decode      9.8 tok/s
+    prompt      238 tok/s  TTFT 2.34s
+    bw        165.5 GB/s  (12.3% of peak)
+    GPU 0     1.6 GiB
+    GPU 1    13.6 GiB
+
+  [llamacpp | dual]
+    starting llama-server (dual) ... ready
+    run 1/2 ... 22.8 tok/s  (prompt 866 tok/s  TTFT 2.35s)
+    run 2/2 ... 22.9 tok/s  (prompt 41 tok/s  TTFT 0.10s)
+    decode     22.8 tok/s
+    prompt      454 tok/s  TTFT 1.22s
+    bw        384.2 GB/s  (28.6% of peak)
+    GPU 0    10.3 GiB
+    GPU 1     9.6 GiB
+
+  [llamacpp | dual_21]
+    starting llama-server (dual_21) ... ready
+    run 1/2 ... 22.5 tok/s  (prompt 858 tok/s  TTFT 2.37s)
+    run 2/2 ... 22.8 tok/s  (prompt 43 tok/s  TTFT 0.09s)
+    decode     22.7 tok/s
+    prompt      451 tok/s  TTFT 1.23s
+    bw        381.1 GB/s  (28.4% of peak)
+    GPU 0    13.1 GiB
+    GPU 1     7.0 GiB
+
+  [llamacpp | dual_tensor]
+    starting llama-server (dual_tensor) ... ready
+    run 1/2 ... 37.1 tok/s  (prompt 668 tok/s  TTFT 3.04s)
+    run 2/2 ... 37.3 tok/s  (prompt 36 tok/s  TTFT 0.11s)
+    decode     37.2 tok/s
+    prompt      352 tok/s  TTFT 1.58s
+    bw        625.7 GB/s  (46.6% of peak)
+    GPU 0    10.8 GiB
+    GPU 1     9.1 GiB
+
+  results → D:\Projects\dual-gpu-eval\results\results.csv
