@@ -1,0 +1,70 @@
+# qwen3.5-9b-q4_chat_single0_single1_dual_dual_21_dual_tensor  started 2026-07-04_19-12-23
+
+
+=======================================================
+  qwen3.5-9b-q4  —  Qwen3.5 9B (Q4_K_M)
+=======================================================
+
+── tier: chat ──
+
+  [ollama]
+    warmup ... loaded in 5.3s
+    run 1/2 ... 66.2 tok/s  (prompt 14265 tok/s  TTFT 0.04s)
+    run 2/2 ... 66.9 tok/s  (prompt 13801 tok/s  TTFT 0.04s)
+    decode     66.6 tok/s
+    prompt    14033 tok/s  TTFT 0.04s
+    bw        378.3 GB/s  (56.3% of peak)
+    GPU 0     9.4 GiB
+    GPU 1     0.3 GiB
+
+  [llamacpp | single0]
+    starting llama-server (single0) ... ready
+    run 1/2 ... 67.8 tok/s  (prompt 2350 tok/s  TTFT 0.23s)
+    run 2/2 ... 69.9 tok/s  (prompt 145 tok/s  TTFT 0.03s)
+    decode     68.9 tok/s
+    prompt     1247 tok/s  TTFT 0.13s
+    bw        391.1 GB/s  (58.2% of peak)
+    GPU 0     9.0 GiB
+    GPU 1     0.3 GiB
+
+  [llamacpp | single1]
+    starting llama-server (single1) ... ready
+    run 1/2 ... 68.8 tok/s  (prompt 2236 tok/s  TTFT 0.24s)
+    run 2/2 ... 68.8 tok/s  (prompt 94 tok/s  TTFT 0.04s)
+    decode     68.8 tok/s
+    prompt     1165 tok/s  TTFT 0.14s
+    bw        390.6 GB/s  (58.1% of peak)
+    GPU 0     3.3 GiB
+    GPU 1     6.0 GiB
+
+  [llamacpp | dual]
+    starting llama-server (dual) ... ready
+    run 1/2 ... 67.6 tok/s  (prompt 2241 tok/s  TTFT 0.24s)
+    run 2/2 ... 67.7 tok/s  (prompt 113 tok/s  TTFT 0.04s)
+    decode     67.7 tok/s
+    prompt     1177 tok/s  TTFT 0.14s
+    bw        384.3 GB/s  (57.2% of peak)
+    GPU 0     6.4 GiB
+    GPU 1     3.9 GiB
+
+  [llamacpp | dual_21]
+    starting llama-server (dual_21) ... ready
+    run 1/2 ... 67.7 tok/s  (prompt 2299 tok/s  TTFT 0.23s)
+    run 2/2 ... 67.5 tok/s  (prompt 121 tok/s  TTFT 0.03s)
+    decode     67.6 tok/s
+    prompt     1210 tok/s  TTFT 0.13s
+    bw        383.9 GB/s  (57.1% of peak)
+    GPU 0     7.1 GiB
+    GPU 1     3.2 GiB
+
+  [llamacpp | dual_tensor]
+    starting llama-server (dual_tensor) ... ready
+    run 1/2 ... 103.6 tok/s  (prompt 1517 tok/s  TTFT 0.36s)
+    run 2/2 ... 103.0 tok/s  (prompt 95 tok/s  TTFT 0.04s)
+    decode    103.3 tok/s
+    prompt      806 tok/s  TTFT 0.20s
+    bw        586.9 GB/s  (43.7% of peak)
+    GPU 0     6.5 GiB
+    GPU 1     3.4 GiB
+
+  results → D:\Projects\dual-gpu-eval\results\results.csv

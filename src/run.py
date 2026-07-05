@@ -9,7 +9,7 @@ Usage:
   python run.py bench <id>                              run full benchmark matrix
   python run.py bench <id> --backend llamacpp
   python run.py bench <id> --backend llamacpp --gpu dual --tiers chat
-  python run.py bench <id> --gpu-configs dual dual_21 --tiers chat
+  python run.py bench <id> --gpu-configs dual dual_tensor --tiers chat
   python run.py run-all
   python run.py run-all --backend ollama --tiers chat rag
   python run.py results                                 print results table
@@ -36,7 +36,8 @@ GGUF_DIR     = Path(r"D:\llama-models")
 LLAMACPP_BIN = Path(r"D:\llama.cpp\llama-server.exe")
 LLAMACPP_PORT = 8080
 OLLAMA_API   = "http://localhost:11434"
-RESULTS_DIR   = Path(__file__).parent / "results"
+ROOT          = Path(__file__).resolve().parent.parent   # repo root (src/ lives under it)
+RESULTS_DIR   = ROOT / "results"
 RESULTS_CSV   = RESULTS_DIR / "results.csv"
 LOGS_DIR      = RESULTS_DIR / "logs"
 METRICS_DIR   = RESULTS_DIR / "metrics"
@@ -107,7 +108,7 @@ N_CTX            = 8192
 GPU_BW_PEAK_GBS  = 672.0
 
 # ── Prompt tiers ──────────────────────────────────────────────────────────────
-_dracula_path = Path(__file__).parent / "dracula_ch1.txt"
+_dracula_path = ROOT / "dracula_ch1.txt"
 if not _dracula_path.exists():
     sys.exit(f"Missing {_dracula_path}  — needed for prompt tiers.")
 
@@ -154,10 +155,9 @@ GPU_CONFIGS = {
     "single0":     ("0",   None,  None),
     "single1":     ("1",   None,  None),
     "dual":        ("0,1", "1,1", None),       # layer split 1:1
-    "dual_21":     ("0,1", "2,1", None),       # layer split 2:1 (more on x8 GPU)
     "dual_tensor": ("0,1", "1,1", "tensor"),   # tensor parallelism 1:1
 }
-DEFAULT_GPU_CONFIGS = ("single0", "single1", "dual", "dual_21", "dual_tensor")
+DEFAULT_GPU_CONFIGS = ("single0", "single1", "dual", "dual_tensor")
 
 # ── Models ────────────────────────────────────────────────────────────────────
 MODELS = [
@@ -257,10 +257,18 @@ class VramSampler:
         self._stop.set()
 
 # ── Power sampler ─────────────────────────────────────────────────────────────
+# NOTE: some consumer cards don't expose power telemetry to NVML (returns
+# NVMLError_NotSupported — confirmed on the MSI VENTUS RTX 5060 Ti / GPU0 here,
+# while the ASUS DUAL / GPU1 reports fine). We sample each GPU independently and
+# skip the ones that fail, so a single unsupported GPU no longer zeroes out the
+# whole measurement. `supported` records which physical indices actually report.
 class PowerSampler:
     def __init__(self):
-        self.peak = 0.0
-        self.avg  = 0.0
+        self.peak = 0.0            # peak total watts (sum of supported GPUs)
+        self.avg  = 0.0            # mean total watts
+        self.per_gpu_peak = {}     # physical index → peak watts
+        self.supported = set()     # physical indices that report power
+        self.n_gpus = 0
         self._samples = []
         self._stop = threading.Event()
 
@@ -268,11 +276,19 @@ class PowerSampler:
         try:
             import pynvml
             pynvml.nvmlInit()
-            handles = [pynvml.nvmlDeviceGetHandleByIndex(i)
-                       for i in range(pynvml.nvmlDeviceGetCount())]
+            handles = {i: pynvml.nvmlDeviceGetHandleByIndex(i)
+                       for i in range(pynvml.nvmlDeviceGetCount())}
+            self.n_gpus = len(handles)
             while not self._stop.is_set():
-                total = sum(pynvml.nvmlDeviceGetPowerUsage(h) / 1000
-                            for h in handles)   # mW → W
+                total = 0.0
+                for i, h in handles.items():
+                    try:
+                        w = pynvml.nvmlDeviceGetPowerUsage(h) / 1000   # mW → W
+                    except pynvml.NVMLError:
+                        continue   # this GPU doesn't expose power — skip it
+                    total += w
+                    self.supported.add(i)
+                    self.per_gpu_peak[i] = max(self.per_gpu_peak.get(i, 0.0), w)
                 self._samples.append(total)
                 self.peak = max(self.peak, total)
                 self._stop.wait(0.5)
@@ -357,6 +373,7 @@ def bench_ollama(m, prompt, max_tokens, tier=""):
     avg = lambda k: sum(x[k] for x in runs) / len(runs)
     return {"ok": True, "load_time_s": load_s, "peak_vram_mib": vram.peak,
             "peak_watts": pwr.peak, "avg_watts": pwr.avg,
+            "power_gpus": sorted(pwr.supported), "power_n": pwr.n_gpus,
             "decode_tok_per_s": avg("decode_tok_per_s"),
             "prompt_tok_per_s": avg("prompt_tok_per_s"),
             "ttft_s": avg("ttft_s"), "n_generated": runs[0]["n_generated"]}
@@ -464,6 +481,7 @@ def bench_llamacpp(m, gpu_config, prompt, max_tokens, mtp_n=0, mtp_pmin=0.75, ti
     avg = lambda k: sum(x[k] for x in runs) / len(runs)
     return {"ok": True, "load_time_s": None, "peak_vram_mib": vram.peak,
             "peak_watts": pwr.peak, "avg_watts": pwr.avg,
+            "power_gpus": sorted(pwr.supported), "power_n": pwr.n_gpus,
             "decode_tok_per_s": avg("decode_tok_per_s"),
             "prompt_tok_per_s": avg("prompt_tok_per_s"),
             "ttft_s": avg("ttft_s"), "n_generated": runs[0]["n_generated"]}
@@ -476,8 +494,11 @@ def print_result(r):
         if r.get("bandwidth_gb_s"):
             print(f"    bw      {r['bandwidth_gb_s']:>7.1f} GB/s  ({r['bandwidth_pct']:.1f}% of peak)")
         if r.get("peak_watts"):
+            sup = r.get("power_gpus") or []
+            n   = r.get("power_n", len(sup))
+            note = "" if len(sup) >= n else f"  [GPU {','.join(map(str, sup))} only — others report N/A]"
             print(f"    power   {r['avg_watts']:>6.1f}W avg  {r['peak_watts']:.1f}W peak  "
-                  f"({r['avg_watts']/max(r['decode_tok_per_s'],0.001):.2f} W/tok·s⁻¹)")
+                  f"({r['avg_watts']/max(r['decode_tok_per_s'],0.001):.2f} W/tok·s⁻¹){note}")
         for gpu, mib in sorted((r.get("peak_vram_mib") or {}).items()):
             print(f"    GPU {gpu}   {mib/1024:>5.1f} GiB")
     else:

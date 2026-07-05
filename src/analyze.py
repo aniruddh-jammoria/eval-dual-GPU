@@ -14,8 +14,9 @@ import csv
 import sys
 from pathlib import Path
 
-RESULTS_CSV = Path(__file__).parent / "results" / "results.csv"
-RESULTS_DIR = Path(__file__).parent / "results"
+ROOT        = Path(__file__).resolve().parent.parent   # repo root (src/ lives under it)
+RESULTS_CSV = ROOT / "results" / "results.csv"
+RESULTS_DIR = ROOT / "results"
 TIER_ORDER  = ["chat", "rag", "longdoc", "code"]
 
 
@@ -74,19 +75,18 @@ def table_gpu_comparison(rows):
 
         print(f"\n{'═'*78}")
         print(f"  GPU CONFIG COMPARISON — llama.cpp — tier: {tier}")
-        print(f"  dual_21 = 2/3 layers on GPU0 (x16 slot), 1/3 on GPU1 (x2 slot)")
         print(f"{'═'*78}")
         print(f"  {'model':<24} {'single0':>9} {'single1':>9} {'dual':>9}"
-              f" {'dual_21':>9} {'dual vs s0':>11}")
-        print("  " + "─"*73)
+              f" {'dual_tensor':>11} {'tensor vs s0':>13}")
+        print("  " + "─"*75)
         for id_, cfgs in sorted(by_model.items()):
-            def tok(c): return f"{cfgs[c]['decode_tok_per_s']:>9.1f}" if c in cfgs else f"{'—':>9}"
+            def tok(c, w=9): return f"{cfgs[c]['decode_tok_per_s']:>{w}.1f}" if c in cfgs else f"{'—':>{w}}"
             diff = ""
-            if "single0" in cfgs and "dual" in cfgs:
-                d = (cfgs["dual"]["decode_tok_per_s"] - cfgs["single0"]["decode_tok_per_s"])
+            if "single0" in cfgs and "dual_tensor" in cfgs:
+                d = (cfgs["dual_tensor"]["decode_tok_per_s"] - cfgs["single0"]["decode_tok_per_s"])
                 diff = f"  {d/cfgs['single0']['decode_tok_per_s']*100:>+.1f}%"
             print(f"  {id_:<24}{tok('single0')}{tok('single1')}{tok('dual')}"
-                  f"{tok('dual_21')}{diff:>11}")
+                  f"{tok('dual_tensor', 11)}{diff:>13}")
 
 
 def table_backend_comparison(rows):
@@ -106,7 +106,7 @@ def table_backend_comparison(rows):
         for id_, backends in sorted(by_model.items()):
             o  = backends.get("ollama")
             lc_rows = [r for r in sub if r["id"] == id_ and r.get("backend") == "llamacpp"]
-            lc = (next((r for r in lc_rows if r.get("gpu_config") == "dual_21"), None) or
+            lc = (next((r for r in lc_rows if r.get("gpu_config") == "dual_tensor"), None) or
                   next((r for r in lc_rows if r.get("gpu_config") == "dual"), None) or
                   next((r for r in lc_rows if r.get("gpu_config") == "single0"), None))
             if not o or not lc:
@@ -140,7 +140,7 @@ def table_power(rows):
 
 
 def table_vram(rows):
-    dual = [r for r in rows if r.get("gpu_config") in ("dual", "dual_21")]
+    dual = [r for r in rows if r.get("gpu_config") in ("dual", "dual_tensor")]
     if not dual:
         return
     print(f"\n{'═'*62}")
@@ -176,7 +176,7 @@ def make_charts(rows):
         "llamacpp / single0":  "#E8A838",
         "llamacpp / single1":  "#F4C46A",
         "llamacpp / dual":     "#5CB85C",
-        "llamacpp / dual_21":  "#2E7D32",
+        "llamacpp / dual_tensor": "#2E7D32",
     }
 
     models  = sorted(set(r["id"] for r in rows))

@@ -1,0 +1,34 @@
+# gemma4-31b-q5_code_dual_dual_tensor  started 2026-07-05_12-15-55
+
+
+=======================================================
+  gemma4-31b-q5  —  Gemma 4 31B IT UD (Q5_K_XL)
+=======================================================
+
+── tier: code ──
+
+  [ollama]
+    warmup ... loaded in 10.1s
+    run 1/2 ... 17.3 tok/s  (prompt 813 tok/s  TTFT 0.20s)
+    run 2/2 ... 17.2 tok/s  (prompt 842 tok/s  TTFT 0.19s)
+    decode     17.3 tok/s
+    prompt      827 tok/s  TTFT 0.19s
+    bw        377.7 GB/s  (56.2% of peak)
+    power     96.0W avg  101.9W peak  (5.56 W/tok·s⁻¹)  [GPU 1 only — others report N/A]
+    GPU 0    15.3 GiB
+    GPU 1    13.2 GiB
+
+  [llamacpp | dual]
+    starting llama-server (dual) ...   10s ... ready
+    run 1/2 ... 17.5 tok/s  (prompt 363 tok/s  TTFT 0.44s)
+    run 2/2 ... 17.5 tok/s  (prompt 481 tok/s  TTFT 0.32s)
+    decode     17.5 tok/s
+    prompt      422 tok/s  TTFT 0.38s
+    bw        382.8 GB/s  (57.0% of peak)
+    power    100.4W avg  103.4W peak  (5.74 W/tok·s⁻¹)  [GPU 1 only — others report N/A]
+    GPU 0    15.5 GiB
+    GPU 1    14.6 GiB
+
+  [llamacpp | dual_tensor]
+    starting llama-server (dual_tensor) ...   10s ... ready
+    run 1/2 ... 

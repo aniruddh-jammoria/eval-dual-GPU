@@ -12,8 +12,9 @@ import re
 import sys
 from pathlib import Path
 
-LOGS_DIR    = Path(__file__).parent / "results" / "logs"
-METRICS_DIR = Path(__file__).parent / "results" / "metrics"
+ROOT        = Path(__file__).resolve().parent.parent   # repo root (src/ lives under it)
+LOGS_DIR    = ROOT / "results" / "logs"
+METRICS_DIR = ROOT / "results" / "metrics"
 
 FIELDS = [
     "log_file", "model", "tier", "backend", "gpu_config",

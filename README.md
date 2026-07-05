@@ -109,8 +109,8 @@ Each model is benchmarked on four prompt types to test different context lengths
 ### Prerequisites
 
 - [Ollama](https://ollama.com) running (`ollama serve`)
-- [llama.cpp](https://github.com/ggml-org/llama.cpp) built with CUDA — set `LLAMACPP_BIN` in `run.py`
-- GGUF files downloaded to your model directory — set `GGUF_DIR` in `run.py`
+- [llama.cpp](https://github.com/ggml-org/llama.cpp) built with CUDA — set `LLAMACPP_BIN` in `src/run.py`
+- GGUF files downloaded to your model directory — set `GGUF_DIR` in `src/run.py`
 
 ### Install
 
@@ -121,13 +121,13 @@ pip install -r requirements.txt
 ### Register models with Ollama
 
 ```bash
-python run.py register
+python src/run.py register
 ```
 
 ### Run all benchmarks
 
 ```bash
-python run.py run-all
+python src/run.py run-all
 ```
 
 Produces:
@@ -138,15 +138,15 @@ Produces:
 ### Benchmark a single model
 
 ```bash
-python run.py bench qwen3.5-9b-q4
-python run.py bench qwen3.5-9b-q4 --backend llamacpp --gpu-configs dual dual_tensor
-python run.py bench qwen3.5-9b-q4 --tiers chat code
+python src/run.py bench qwen3.5-9b-q4
+python src/run.py bench qwen3.5-9b-q4 --backend llamacpp --gpu-configs dual dual_tensor
+python src/run.py bench qwen3.5-9b-q4 --tiers chat code
 ```
 
 ### Generate the dashboard
 
 ```bash
-python generate_report.py
+python src/generate_report.py
 ```
 
 Writes `docs/index.html`. Reads all CSVs in `results/metrics/`, averages the latest 2 runs per cell.
@@ -154,22 +154,26 @@ Writes `docs/index.html`. Reads all CSVs in `results/metrics/`, averages the lat
 ### Other commands
 
 ```bash
-python run.py gpus          # show GPU VRAM state
-python run.py models        # list models and file status
-python run.py results       # print results table in terminal
-python log2csv.py           # re-parse all logs → metrics CSVs
-python analyze.py           # full analysis report from results.csv
+python src/run.py gpus          # show GPU VRAM state
+python src/run.py models        # list models and file status
+python src/run.py results       # print results table in terminal
+python src/log2csv.py           # re-parse all logs → metrics CSVs
+python src/analyze.py           # full analysis report from results.csv
 ```
+
+Model paths (`GGUF_DIR`) and the llama.cpp binary (`LLAMACPP_BIN`) are set at the top of `src/run.py`.
 
 ---
 
 ## Repository layout
 
 ```
-run.py                  benchmark CLI (main entry point)
-log2csv.py              parse .log files → metrics CSVs
-generate_report.py      build docs/index.html dashboard
-analyze.py              terminal analysis from results.csv
+src/
+  run.py                benchmark CLI (main entry point)
+  log2csv.py            parse .log files → metrics CSVs
+  generate_report.py    build docs/index.html dashboard
+  analyze.py            terminal analysis from results.csv
+
 dracula_ch1.txt         prompt source text
 requirements.txt
 
@@ -182,6 +186,7 @@ results/
   results.csv           master CSV (all runs, appended)
 
 reports/
+  benchmark_results_template.md   report template (fill by hand per run)
   benchmark_results_YYYYMMDD.md   timestamped result snapshots
 ```
 

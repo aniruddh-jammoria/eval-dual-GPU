@@ -1,0 +1,188 @@
+# gemma4-31b-q5_single0_single1_dual_dual_21_dual_tensor  started 2026-07-05_10-35-31
+
+
+=======================================================
+  gemma4-31b-q5  —  Gemma 4 31B IT UD (Q5_K_XL)
+=======================================================
+
+── tier: chat ──
+
+  [ollama]
+    warmup ... loaded in 9.7s
+    run 1/2 ... 17.3 tok/s  (prompt 721 tok/s  TTFT 0.74s)
+    run 2/2 ... 17.2 tok/s  (prompt 719 tok/s  TTFT 0.74s)
+    decode     17.3 tok/s
+    prompt      720 tok/s  TTFT 0.74s
+    bw        377.8 GB/s  (56.2% of peak)
+    power     91.2W avg  114.5W peak  (5.28 W/tok·s⁻¹)  [GPU 1 only — others report N/A]
+    GPU 0    14.8 GiB
+    GPU 1    13.2 GiB
+
+  [llamacpp | single0]
+    starting llama-server (single0) ...   10s ... ready
+    run 1/2 ... 4.4 tok/s  (prompt 260 tok/s  TTFT 2.05s)
+    run 2/2 ... 4.3 tok/s  (prompt 303 tok/s  TTFT 1.74s)
+    decode      4.3 tok/s
+    prompt      282 tok/s  TTFT 1.90s
+    bw         94.7 GB/s  (14.1% of peak)
+    power      4.5W avg  5.1W peak  (1.05 W/tok·s⁻¹)  [GPU 1 only — others report N/A]
+    GPU 0    15.8 GiB
+    GPU 1     0.3 GiB
+
+  [llamacpp | single1]
+    starting llama-server (single1) ...   10s ... ready
+    run 1/2 ... 4.2 tok/s  (prompt 103 tok/s  TTFT 5.22s)
+    run 2/2 ... 4.2 tok/s  (prompt 108 tok/s  TTFT 4.91s)
+    decode      4.2 tok/s
+    prompt      105 tok/s  TTFT 5.06s
+    bw         91.9 GB/s  (13.7% of peak)
+    power     35.4W avg  81.2W peak  (8.44 W/tok·s⁻¹)  [GPU 1 only — others report N/A]
+    GPU 0     2.4 GiB
+    GPU 1    14.0 GiB
+
+  [llamacpp | dual]
+    starting llama-server (dual) ...   10s ... ready
+    run 1/2 ... 17.3 tok/s  (prompt 610 tok/s  TTFT 0.88s)
+    run 2/2 ... 17.3 tok/s  (prompt 678 tok/s  TTFT 0.78s)
+    decode     17.3 tok/s
+    prompt      644 tok/s  TTFT 0.83s
+    bw        379.1 GB/s  (56.4% of peak)
+    power     99.9W avg  113.8W peak  (5.77 W/tok·s⁻¹)  [GPU 1 only — others report N/A]
+    GPU 0    15.7 GiB
+    GPU 1    14.6 GiB
+
+  [llamacpp | dual_21]
+    starting llama-server (dual_21) ...   10s ...     → llama-server crashed (exit 3221225477).
+
+    FAILED: llama-server crashed (exit 3221225477).
+
+
+  [llamacpp | dual_tensor]
+    starting llama-server (dual_tensor) ...   10s ... ready
+    run 1/2 ... 28.9 tok/s  (prompt 549 tok/s  TTFT 0.97s)
+    run 2/2 ... 28.9 tok/s  (prompt 585 tok/s  TTFT 0.90s)
+    decode     28.9 tok/s
+    prompt      567 tok/s  TTFT 0.94s
+    bw        632.7 GB/s  (47.1% of peak)
+    power    145.6W avg  153.1W peak  (5.04 W/tok·s⁻¹)  [GPU 1 only — others report N/A]
+    GPU 0    15.8 GiB
+    GPU 1    14.6 GiB
+
+── tier: rag ──
+
+  [ollama]
+    warmup ... loaded in 11.0s
+    run 1/2 ... 16.8 tok/s  (prompt 2160 tok/s  TTFT 0.93s)
+    run 2/2 ... 16.7 tok/s  (prompt 2145 tok/s  TTFT 0.93s)
+    decode     16.7 tok/s
+    prompt     2153 tok/s  TTFT 0.93s
+    bw        366.3 GB/s  (54.5% of peak)
+    power     96.7W avg  118.4W peak  (5.78 W/tok·s⁻¹)  [GPU 1 only — others report N/A]
+    GPU 0    14.3 GiB
+    GPU 1    13.2 GiB
+
+  [llamacpp | single0]
+    starting llama-server (single0) ...   10s ... ready
+    run 1/2 ... 4.1 tok/s  (prompt 482 tok/s  TTFT 4.15s)
+    run 2/2 ... 4.1 tok/s  (prompt 4 tok/s  TTFT 0.23s)
+    decode      4.1 tok/s
+    prompt      243 tok/s  TTFT 2.19s
+    bw         89.9 GB/s  (13.4% of peak)
+    power      4.6W avg  5.6W peak  (1.12 W/tok·s⁻¹)  [GPU 1 only — others report N/A]
+    GPU 0    15.8 GiB
+    GPU 1     0.3 GiB
+
+  [llamacpp | single1]
+    starting llama-server (single1) ...   10s ... ready
+    run 1/2 ... 4.1 tok/s  (prompt 255 tok/s  TTFT 7.85s)
+    run 2/2 ... 4.2 tok/s  (prompt 4 tok/s  TTFT 0.25s)
+    decode      4.1 tok/s
+    prompt      129 tok/s  TTFT 4.05s
+    bw         90.1 GB/s  (13.4% of peak)
+    power     36.3W avg  166.8W peak  (8.82 W/tok·s⁻¹)  [GPU 1 only — others report N/A]
+    GPU 0     2.2 GiB
+    GPU 1    14.0 GiB
+
+  [llamacpp | dual]
+    starting llama-server (dual) ...   10s ... ready
+    run 1/2 ... 16.4 tok/s  (prompt 756 tok/s  TTFT 2.64s)
+    run 2/2 ... 16.4 tok/s  (prompt 14 tok/s  TTFT 0.07s)
+    decode     16.4 tok/s
+    prompt      385 tok/s  TTFT 1.36s
+    bw        358.8 GB/s  (53.4% of peak)
+    power     98.2W avg  170.9W peak  (5.99 W/tok·s⁻¹)  [GPU 1 only — others report N/A]
+    GPU 0    15.4 GiB
+    GPU 1    14.6 GiB
+
+  [llamacpp | dual_21]
+    starting llama-server (dual_21) ...   10s ...     → llama-server crashed (exit 3221225477).
+
+    FAILED: llama-server crashed (exit 3221225477).
+
+
+  [llamacpp | dual_tensor]
+    starting llama-server (dual_tensor) ...   10s ... ready
+    run 1/2 ... 27.5 tok/s  (prompt 614 tok/s  TTFT 3.25s)
+    run 2/2 ... 27.5 tok/s  (prompt 17 tok/s  TTFT 0.06s)
+    decode     27.5 tok/s
+    prompt      316 tok/s  TTFT 1.66s
+    bw        602.1 GB/s  (44.8% of peak)
+    power    148.3W avg  154.1W peak  (5.39 W/tok·s⁻¹)  [GPU 1 only — others report N/A]
+    GPU 0    15.8 GiB
+    GPU 1    14.7 GiB
+
+── tier: longdoc ──
+
+  [ollama]
+    warmup ... loaded in 9.9s
+    run 1/2 ... 16.8 tok/s  (prompt 4204 tok/s  TTFT 0.95s)
+    run 2/2 ... 16.8 tok/s  (prompt 4221 tok/s  TTFT 0.94s)
+    decode     16.8 tok/s
+    prompt     4213 tok/s  TTFT 0.95s
+    bw        367.3 GB/s  (54.7% of peak)
+    power     96.2W avg  124.1W peak  (5.73 W/tok·s⁻¹)  [GPU 1 only — others report N/A]
+    GPU 0    13.6 GiB
+    GPU 1    13.2 GiB
+
+  [llamacpp | single0]
+    starting llama-server (single0) ...   10s ... ready
+    run 1/2 ... 4.0 tok/s  (prompt 530 tok/s  TTFT 7.52s)
+    run 2/2 ... 3.9 tok/s  (prompt 4 tok/s  TTFT 0.24s)
+    decode      3.9 tok/s
+    prompt      267 tok/s  TTFT 3.88s
+    bw         86.4 GB/s  (12.9% of peak)
+    power      4.5W avg  5.4W peak  (1.15 W/tok·s⁻¹)  [GPU 1 only — others report N/A]
+    GPU 0    15.8 GiB
+    GPU 1     0.3 GiB
+
+  [llamacpp | single1]
+    starting llama-server (single1) ...   10s ... ready
+    run 1/2 ... 3.9 tok/s  (prompt 260 tok/s  TTFT 15.31s)
+    run 2/2 ... 3.9 tok/s  (prompt 4 tok/s  TTFT 0.28s)
+    decode      3.9 tok/s
+    prompt      132 tok/s  TTFT 7.79s
+    bw         85.0 GB/s  (12.6% of peak)
+    power     36.3W avg  171.4W peak  (9.34 W/tok·s⁻¹)  [GPU 1 only — others report N/A]
+    GPU 0     2.3 GiB
+    GPU 1    14.0 GiB
+
+  [llamacpp | dual]
+    starting llama-server (dual) ...   10s ... ready
+    run 1/2 ... 15.2 tok/s  (prompt 752 tok/s  TTFT 5.30s)
+    run 2/2 ... 15.2 tok/s  (prompt 14 tok/s  TTFT 0.07s)
+    decode     15.2 tok/s
+    prompt      383 tok/s  TTFT 2.69s
+    bw        333.0 GB/s  (49.6% of peak)
+    power     96.7W avg  164.8W peak  (6.36 W/tok·s⁻¹)  [GPU 1 only — others report N/A]
+    GPU 0    15.7 GiB
+    GPU 1    14.6 GiB
+
+  [llamacpp | dual_21]
+    starting llama-server (dual_21) ...   10s ...     → llama-server crashed (exit 3221225477).
+
+    FAILED: llama-server crashed (exit 3221225477).
+
+
+  [llamacpp | dual_tensor]
+    starting llama-server (dual_tensor) ...   10s ... ready
+    run 1/2 ... 

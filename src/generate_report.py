@@ -12,8 +12,9 @@ Config:
 import csv, json, re, sys
 from pathlib import Path
 
-METRICS_DIR = Path(__file__).parent / "results" / "metrics"
-DOCS_DIR    = Path(__file__).parent / "docs"
+ROOT        = Path(__file__).resolve().parent.parent   # repo root (src/ lives under it)
+METRICS_DIR = ROOT / "results" / "metrics"
+DOCS_DIR    = ROOT / "docs"
 
 # ── Config ────────────────────────────────────────────────────────────────────
 RUNCOUNT = 2   # latest N sessions to average per cell key

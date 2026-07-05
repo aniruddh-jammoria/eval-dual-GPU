@@ -1,2 +1,2 @@
-log_file,model,tier,backend,gpu_config,run_1_decode_tok_s,run_1_prompt_tok_s,run_1_ttft_s,run_2_decode_tok_s,run_2_prompt_tok_s,run_2_ttft_s,decode_tok_s,prompt_tok_s,ttft_s,bw_gb_s,bw_pct,gpu0_gib,gpu1_gib
-2026-07-02_19-52-34_gemma4-31b-q5_rag_dual_tensor.log,gemma4-31b-q5,rag,llamacpp,dual_tensor,27.7,636.0,3.14,27.8,17.0,0.06,27.8,327.0,1.6,607.9,45.2,15.7,14.7
+log_file,model,tier,backend,gpu_config,run_1_decode_tok_s,run_1_prompt_tok_s,run_1_ttft_s,run_2_decode_tok_s,run_2_prompt_tok_s,run_2_ttft_s,decode_tok_s,prompt_tok_s,ttft_s,bw_gb_s,bw_pct,gpu0_gib,gpu1_gib,avg_watts,peak_watts
+2026-07-02_19-52-34_gemma4-31b-q5_rag_dual_tensor.log,gemma4-31b-q5,rag,llamacpp,dual_tensor,27.7,636.0,3.14,27.8,17.0,0.06,27.8,327.0,1.6,607.9,45.2,15.7,14.7,,
