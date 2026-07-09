@@ -1,7 +1,15 @@
 # Dual RTX 5060 Ti 16 GB — LLM Inference Benchmark
 
+![Python](https://img.shields.io/badge/python-3.12%2B-blue)
+![Platform](https://img.shields.io/badge/platform-Windows-lightgrey)
+![CLI](https://img.shields.io/badge/type-CLI-informational)
+
 Does a second GPU in a PCIe x2 slot actually help for local LLM inference?
 This repo benchmarks 8 models across 5 GPU configurations on two RTX 5060 Ti 16 GB cards.
+
+Dense models over 16 GB spill from a single GPU into system RAM and crawl at 4–10 tok/s.
+This project measures exactly how much a cheap, chipset-slot second GPU recovers — and
+whether the slow PCIe 4.0 x2 link is actually a bottleneck once both cards are loaded.
 
 **[→ Live dashboard](https://aniruddh-jammoria.github.io/eval-dual-GPU/)**
 
@@ -16,7 +24,7 @@ This repo benchmarks 8 models across 5 GPU configurations on two RTX 5060 Ti 16 
 | VRAM | 16 GB GDDR7 | 16 GB GDDR7 |
 | Bandwidth | 672 GB/s | 672 GB/s |
 
-**Platform:** AMD Ryzen 9 7900 · 32 GB DDR5 · MSI MAG B650 TOMAHAWK WIFI · Windows 11  
+**Platform:** AMD Ryzen 9 7900 · 32 GB DDR5 · MSI MAG B650 TOMAHAWK WIFI · Windows 11
 **Software:** Ollama · llama.cpp b9858 (CUDA 13.3, Blackwell sm_120a)
 
 ---
@@ -75,6 +83,15 @@ Full tables and observations: [`reports/benchmark_results_20260703.md`](reports/
 
 ---
 
+## How it works
+
+1. **You provide** a model ID (from the registry in `src/run.py`), a GGUF file on disk, and which backend/GPU configuration(s) to test.
+2. **The CLI drives** the benchmark: it starts Ollama or a `llama-server` process with the requested GPU split, sends each prompt tier (chat/RAG/longdoc/code) twice, and samples VRAM and GPU power every 250 ms via `pynvml` while the request runs.
+3. **Raw output** goes to a timestamped log; parsed metrics (decode tok/s, prefill tok/s, TTFT, bandwidth, power) go to a per-session CSV and get appended to the master `results/results.csv`.
+4. **The dashboard generator** reads all metrics CSVs, averages the latest 2 runs per (model, config, tier) cell, and writes a self-contained `docs/index.html` you can publish via GitHub Pages.
+
+---
+
 ## Methodology
 
 ### Prompt tiers
@@ -104,7 +121,7 @@ Each model is benchmarked on four prompt types to test different context lengths
 
 ---
 
-## Setup
+## Quick start
 
 ### Prerequisites
 
@@ -134,6 +151,10 @@ Produces:
 - `results/logs/<timestamp>_run-all.log` — full human-readable output
 - `results/metrics/<timestamp>_run-all.csv` — per-run metrics
 - `results/results.csv` — master CSV (appended)
+
+---
+
+## Usage
 
 ### Benchmark a single model
 
