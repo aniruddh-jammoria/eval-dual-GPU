@@ -4,15 +4,14 @@
 ![Platform](https://img.shields.io/badge/platform-Windows-lightgrey)
 ![CLI](https://img.shields.io/badge/type-CLI-informational)
 
-How much do a second GPU, its split mode, and backend choice (Ollama vs llama.cpp)
-actually change local LLM inference performance? This repo benchmarks 8 models across
-5 GPU configurations and 2 backends on two RTX 5060 Ti 16 GB cards, measuring decode
-speed, prefill speed, latency, memory bandwidth, and power draw for each combination.
-
-Dense models over 16 GB spill from a single GPU into system RAM and crawl at 4–10 tok/s.
-This project measures how much a cheap, chipset-slot second GPU recovers, whether layer
-split or tensor split wins, and how Ollama and llama.cpp trade off against each other
-across configurations.
+Most LLM benchmarks available online are for single-GPU setups. The dual 5060 Ti is a
+cheap way to get 32 GB of VRAM — two cards run **$1,000–1,200 combined, roughly 70–75%
+cheaper** than a single-GPU Blackwell alternative like the RTX 5090 (~$4,000) — but is
+often limited by factors like per-card VRAM capacity (16 GB, forcing a split across two
+devices) and PCIe bandwidth to the second card (4 GB/s over a chipset x2 slot). This
+repo benchmarks 8 models across 2 LLM inference backends (Ollama and llama.cpp) and 5
+GPU configurations, measuring decode speed, prefill speed, latency, memory bandwidth,
+and power draw for each combination.
 
 **[→ Live dashboard](https://aniruddh-jammoria.github.io/eval-dual-GPU/)**
 
