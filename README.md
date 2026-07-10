@@ -4,12 +4,15 @@
 ![Platform](https://img.shields.io/badge/platform-Windows-lightgrey)
 ![CLI](https://img.shields.io/badge/type-CLI-informational)
 
-Does a second GPU in a PCIe x2 slot actually help for local LLM inference?
-This repo benchmarks 8 models across 5 GPU configurations on two RTX 5060 Ti 16 GB cards.
+How much do a second GPU, its split mode, and backend choice (Ollama vs llama.cpp)
+actually change local LLM inference performance? This repo benchmarks 8 models across
+5 GPU configurations and 2 backends on two RTX 5060 Ti 16 GB cards, measuring decode
+speed, prefill speed, latency, memory bandwidth, and power draw for each combination.
 
 Dense models over 16 GB spill from a single GPU into system RAM and crawl at 4–10 tok/s.
-This project measures exactly how much a cheap, chipset-slot second GPU recovers — and
-whether the slow PCIe 4.0 x2 link is actually a bottleneck once both cards are loaded.
+This project measures how much a cheap, chipset-slot second GPU recovers, whether layer
+split or tensor split wins, and how Ollama and llama.cpp trade off against each other
+across configurations.
 
 **[→ Live dashboard](https://aniruddh-jammoria.github.io/eval-dual-GPU/)**
 
