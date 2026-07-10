@@ -67,30 +67,9 @@ and power draw for each combination.
 | **TTFT (s)** | Time-to-first-token — latency before output starts |
 | **Bandwidth (GB/s)** | Effective memory bandwidth used: `GGUF_size × decode_tok_s` |
 | **GPU Power (W)** | Average combined GPU power draw during inference |
+| **RAM (GiB)** | Peak resident memory (RSS) of the inference process — spikes when VRAM overflow spills to system RAM |
 
 All metrics are averaged over 2 runs per configuration. Decode tok/s uses the model's internal timing, not wall clock.
-
----
-
-## Key findings
-
-- **Dense models > 16 GB spill to system RAM** on a single GPU, dropping decode from ~50 tok/s to 4–10 tok/s (DDR5 ~90 GB/s vs GPU 672 GB/s). Dual GPU eliminates the spill.
-- **Gemma 4 31B: 4.4 → 29.2 tok/s** with dual tensor split — a **6.6× lift** from the second GPU.
-- **MoE models are an exception**: Gemma 4 26B A4B and Qwen 35B A3B reach 56–67 tok/s on a single GPU despite large GGUF sizes because only ~10–15% of weights are read per token (active experts).
-- **Tensor split (`--split-mode tensor`)** runs both GPUs in parallel per layer, doubling effective bandwidth (2 × 672 = 1 344 GB/s). Gives **50–70% speedup** over layer split for dense models.
-- **Ollama beats llama.cpp for MoE** on a single GPU by 25–45% (cuBLAS sparse routing kernels), but **cannot split a single inference across two GPUs**.
-- **The PCIe x2 slot is not a bottleneck for decode**: allreduce data in tensor split mode is ~14 KB per layer per token — negligible over 4 GB/s.
-
-Full tables and observations: [`reports/benchmark_results_20260703.md`](reports/benchmark_results_20260703.md)
-
----
-
-## How it works
-
-1. **You provide** a model ID (from the registry in `src/run.py`), a GGUF file on disk, and which backend/GPU configuration(s) to test.
-2. **The CLI drives** the benchmark: it starts Ollama or a `llama-server` process with the requested GPU split, sends each prompt tier (chat/RAG/longdoc/code) twice, and samples VRAM and GPU power every 250 ms via `pynvml` while the request runs.
-3. **Raw output** goes to a timestamped log; parsed metrics (decode tok/s, prefill tok/s, TTFT, bandwidth, power) go to a per-session CSV and get appended to the master `results/results.csv`.
-4. **The dashboard generator** reads all metrics CSVs, averages the latest 2 runs per (model, config, tier) cell, and writes a self-contained `docs/index.html` you can publish via GitHub Pages.
 
 ---
 
@@ -114,12 +93,22 @@ Each model is benchmarked on four prompt types to test different context lengths
 - **TTFT / Prefill** uses `prompt_eval_duration`. Run 2's prefill is artificially fast (warm KV cache) — treat it as indicative only.
 - VRAM usage is sampled every 250 ms via pynvml. Models are flagged as **CPU-spilling** when peak VRAM > 14.5 GB on a single-GPU config.
 - Bandwidth is derived: `bw = GGUF_size_GB × decode_tok_s`. For MoE models this exceeds the GPU's rated peak (expected — only active experts are read per token).
+- RAM is sampled every 250 ms via psutil, tracking the **inference process's RSS**, not whole-system memory — a peak that isn't attributable to background apps or the OS. For llama.cpp this is the exact PID `run.py` spawns; for Ollama (a persistent background service) it's the heaviest process matching name `ollama` at each sample, since Ollama may fan work out to a model-runner subprocess.
 
 ### Reproducibility
 
 - llama.cpp server started fresh for each configuration; Ollama model evicted between runs.
 - `temperature=0` for all runs (deterministic output).
 - All runs on the same machine with no other GPU workloads active.
+
+---
+
+## How it works
+
+1. **You provide** a model ID (from the registry in `src/run.py`), a GGUF file on disk, and which backend/GPU configuration(s) to test.
+2. **The CLI drives** the benchmark: it starts Ollama or a `llama-server` process with the requested GPU split, sends each prompt tier (chat/RAG/longdoc/code) twice, and samples VRAM/GPU power (via `pynvml`) and process RAM (via `psutil`) every 250 ms while the request runs.
+3. **Raw output** goes to a timestamped log; parsed metrics (decode tok/s, prefill tok/s, TTFT, bandwidth, power, RAM) go to a per-session CSV and get appended to the master `results/results.csv`.
+4. **The dashboard generator** reads all metrics CSVs, averages the latest 2 runs per (model, config, tier) cell, and writes a self-contained `docs/index.html` you can publish via GitHub Pages.
 
 ---
 
@@ -164,7 +153,10 @@ Produces:
 python src/run.py bench qwen3.5-9b-q4
 python src/run.py bench qwen3.5-9b-q4 --backend llamacpp --gpu-configs dual dual_tensor
 python src/run.py bench qwen3.5-9b-q4 --tiers chat code
+python src/run.py bench qwen3.5-9b-q4 --backend llamacpp --flash-attn off --mmap off
 ```
+
+`--flash-attn {on,off}` and `--mmap {on,off}` (both default `on`) toggle llama.cpp's flash attention and mmap for weight loading — useful for isolating their effect on decode speed, TTFT, and RAM. Recorded per-run but not yet a dashboard column; compare via `python src/run.py results`.
 
 ### Generate the dashboard
 
@@ -224,4 +216,11 @@ To publish:
 2. Go to **Settings → Pages → Source**: branch `main`, folder `/docs`
 3. Dashboard will be live at `https://aniruddh-jammoria.github.io/eval-dual-GPU/`
 
-Features: metric switcher (Decode · Prefill · TTFT · Bandwidth · GPU Power), tier tabs (chat · RAG · longdoc · code), heat-mapped cells, MoE and CPU-spill annotations, run-count badges.
+Features: metric switcher (Decode · Prefill · TTFT · Bandwidth · GPU Power · RAM), tier tabs (chat · RAG · longdoc · code), heat-mapped cells, MoE and CPU-spill annotations, run-count badges.
+
+---
+
+## Changelog & development notes
+
+- [`CHANGELOG.md`](CHANGELOG.md) — notable changes, most recent first.
+- [`docs/DEVLOG.md`](docs/DEVLOG.md) — development history and reasoning; significant decisions are recorded as ADRs in [`docs/adr/`](docs/adr/).
