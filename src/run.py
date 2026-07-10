@@ -162,28 +162,28 @@ DEFAULT_GPU_CONFIGS = ("single0", "single1", "dual", "dual_tensor")
 # ── Models ────────────────────────────────────────────────────────────────────
 MODELS = [
     {"id": "gemma4-12b-qat",     "name": "Gemma 4 12B IT QAT (Q4_0)",
-     "ollama_tag": "eval/gemma4-12b-qat",
+     "ollama_tag": "eval/gemma4-12b-qat", "moe": False,
      "gguf": GGUF_DIR / "gemma-4-12b-it-qat-q4_0.gguf"},
     {"id": "qwen3.5-9b-q4",      "name": "Qwen3.5 9B (Q4_K_M)",
-     "ollama_tag": "eval/qwen3.5-9b-q4",
+     "ollama_tag": "eval/qwen3.5-9b-q4", "moe": False,
      "gguf": GGUF_DIR / "Qwen3.5-9B-Q4_K_M.gguf"},
     {"id": "qwen3.5-9b-q8",      "name": "Qwen3.5 9B (Q8_0)",
-     "ollama_tag": "eval/qwen3.5-9b-q8",
+     "ollama_tag": "eval/qwen3.5-9b-q8", "moe": False,
      "gguf": GGUF_DIR / "Qwen3.5-9B-Q8_0.gguf"},
     {"id": "qwen3.6-27b-q4",     "name": "Qwen3.6 27B (Q4_K_M)",
-     "ollama_tag": "eval/qwen3.6-27b-q4",
+     "ollama_tag": "eval/qwen3.6-27b-q4", "moe": False,
      "gguf": GGUF_DIR / "Qwen3.6-27B-Q4_K_M.gguf"},
     {"id": "qwen3.6-27b-q6",     "name": "Qwen3.6 27B (Q6_K)",
-     "ollama_tag": "eval/qwen3.6-27b-q6",
+     "ollama_tag": "eval/qwen3.6-27b-q6", "moe": False,
      "gguf": GGUF_DIR / "Qwen3.6-27B-Q6_K.gguf"},
     {"id": "gemma4-26b-moe-q4",  "name": "Gemma 4 26B A4B IT MoE UD (Q4_K_M)",
-     "ollama_tag": "eval/gemma4-26b-moe-q4",
+     "ollama_tag": "eval/gemma4-26b-moe-q4", "moe": True,
      "gguf": GGUF_DIR / "gemma-4-26B-A4B-it-UD-Q4_K_M.gguf"},
     {"id": "qwen3.6-35b-a3b-q4", "name": "Qwen3.6 35B A3B MoE UD (Q4_K_M)",
-     "ollama_tag": "eval/qwen3.6-35b-a3b-q4",
+     "ollama_tag": "eval/qwen3.6-35b-a3b-q4", "moe": True,
      "gguf": GGUF_DIR / "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"},
     {"id": "gemma4-31b-q5",      "name": "Gemma 4 31B IT UD (Q5_K_XL)",
-     "ollama_tag": "eval/gemma4-31b-q5",
+     "ollama_tag": "eval/gemma4-31b-q5", "moe": False,
      "gguf": GGUF_DIR / "gemma-4-31B-it-UD-Q5_K_XL.gguf"},
 ]
 
@@ -195,11 +195,13 @@ def get_model(id_):
 
 # ── CSV schema ────────────────────────────────────────────────────────────────
 RESULT_FIELDS = [
-    "id", "ollama_tag", "backend", "gpu_config", "prompt_tier", "mtp_n",
+    "id", "ollama_tag", "moe", "backend", "gpu_config", "prompt_tier", "mtp_n",
+    "flash_attn", "mmap",
     "ok", "error", "load_time_s",
     "decode_tok_per_s", "prompt_tok_per_s", "ttft_s",
     "n_generated", "peak_vram_mib",
     "peak_watts", "avg_watts",
+    "peak_ram_mib", "ram_total_mib",
     "gguf_size_gb", "bandwidth_gb_s", "bandwidth_pct",
 ]
 
@@ -302,6 +304,49 @@ class PowerSampler:
         self._stop.set()
         self.avg = sum(self._samples) / len(self._samples) if self._samples else 0.0
 
+# ── RAM sampler ───────────────────────────────────────────────────────────────
+# Samples resident memory (RSS) of the actual inference process, not system-wide
+# RAM, so the number is attributable to the model rather than whatever else is
+# running on the machine. For llama.cpp we hold the exact PID we spawned. Ollama
+# runs as a persistent service and may fan work out to a model-runner subprocess,
+# so we re-scan by process name each tick and take the heaviest match — handles
+# subprocess churn without needing to track a PID across the session.
+class RamSampler:
+    def __init__(self, pid=None, proc_name=None):
+        self.peak = 0.0        # peak RSS of the matched process(es), MiB
+        self.total_mib = 0.0   # total system RAM, for % context
+        self._pid = pid
+        self._proc_name = proc_name
+        self._stop = threading.Event()
+
+    def _run(self):
+        try:
+            import psutil
+            self.total_mib = psutil.virtual_memory().total / 1024**2
+            while not self._stop.is_set():
+                if self._pid is not None:
+                    candidates = [self._pid]
+                else:
+                    candidates = [p.info["pid"] for p in psutil.process_iter(["pid", "name"])
+                                  if self._proc_name.lower() in (p.info["name"] or "").lower()]
+                best = 0.0
+                for pid in candidates:
+                    try:
+                        best = max(best, psutil.Process(pid).memory_info().rss / 1024**2)
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        continue
+                if best:
+                    self.peak = max(self.peak, best)
+                self._stop.wait(0.25)
+        except Exception:
+            pass
+
+    def start(self):
+        threading.Thread(target=self._run, daemon=True).start()
+
+    def stop(self):
+        self._stop.set()
+
 def _effective_bw_peak(gpu_config, peak_vram_mib):
     # Tensor split: both GPUs read their half simultaneously → 2× bandwidth
     # Layer split / single: sequential → peak is one GPU's bandwidth regardless of count
@@ -355,6 +400,7 @@ def bench_ollama(m, prompt, max_tokens, tier=""):
 
     vram = VramSampler(); vram.start()
     pwr  = PowerSampler(); pwr.start()
+    ram  = RamSampler(proc_name="ollama"); ram.start()
     runs = []
     for i in range(REPEATS):
         print(f"    run {i+1}/{REPEATS} ...", end=" ", flush=True)
@@ -367,20 +413,21 @@ def bench_ollama(m, prompt, max_tokens, tier=""):
         save_response(m["id"], "ollama", "auto", tier, i + 1, prompt, d.get("response", ""))
         runs.append({"decode_tok_per_s": dtps, "prompt_tok_per_s": ptps,
                      "ttft_s": ttft, "n_generated": d["eval_count"]})
-    vram.stop(); pwr.stop()
+    vram.stop(); pwr.stop(); ram.stop()
     _ollama_unload(tag)
 
     avg = lambda k: sum(x[k] for x in runs) / len(runs)
     return {"ok": True, "load_time_s": load_s, "peak_vram_mib": vram.peak,
             "peak_watts": pwr.peak, "avg_watts": pwr.avg,
             "power_gpus": sorted(pwr.supported), "power_n": pwr.n_gpus,
+            "peak_ram_mib": ram.peak, "ram_total_mib": ram.total_mib,
             "decode_tok_per_s": avg("decode_tok_per_s"),
             "prompt_tok_per_s": avg("prompt_tok_per_s"),
             "ttft_s": avg("ttft_s"), "n_generated": runs[0]["n_generated"]}
 
 # ── llama-server context manager ──────────────────────────────────────────────
 @contextmanager
-def llama_server(gguf_path, gpu_config, mtp_n=0, mtp_pmin=0.75):
+def llama_server(gguf_path, gpu_config, mtp_n=0, mtp_pmin=0.75, flash_attn="on", mmap="on"):
     if not LLAMACPP_BIN.exists():
         raise FileNotFoundError(f"llama-server.exe not found at {LLAMACPP_BIN}")
 
@@ -388,7 +435,9 @@ def llama_server(gguf_path, gpu_config, mtp_n=0, mtp_pmin=0.75):
     env = {**os.environ, "CUDA_VISIBLE_DEVICES": visible, "CUDA_DEVICE_ORDER": "PCI_BUS_ID"}
     cmd = [str(LLAMACPP_BIN), "-m", str(gguf_path), "-ngl", "-1",
            "--port", str(LLAMACPP_PORT), "--host", "127.0.0.1",
-           "-c", str(N_CTX), "--flash-attn", "on", "-ub", "2048", "--log-disable"]
+           "-c", str(N_CTX), "--flash-attn", flash_attn, "-ub", "2048", "--log-disable"]
+    if mmap == "off":
+        cmd += ["--no-mmap"]
     if tensor_split:
         cmd += ["--tensor-split", tensor_split]
     if split_mode:
@@ -425,7 +474,7 @@ def llama_server(gguf_path, gpu_config, mtp_n=0, mtp_pmin=0.75):
         if not started:
             proc.kill()
             raise TimeoutError("llama-server did not become ready within 180s")
-        yield
+        yield proc
     finally:
         proc.terminate()
         try:
@@ -439,7 +488,8 @@ def llama_server(gguf_path, gpu_config, mtp_n=0, mtp_pmin=0.75):
             pass
 
 # ── llama.cpp benchmark ───────────────────────────────────────────────────────
-def bench_llamacpp(m, gpu_config, prompt, max_tokens, mtp_n=0, mtp_pmin=0.75, tier=""):
+def bench_llamacpp(m, gpu_config, prompt, max_tokens, mtp_n=0, mtp_pmin=0.75, tier="",
+                    flash_attn="on", mmap="on"):
     url = f"http://127.0.0.1:{LLAMACPP_PORT}/v1/chat/completions"
     payload = {"messages": [{"role": "user", "content": prompt}],
                "max_tokens": max_tokens, "temperature": 0, "stream": False}
@@ -453,11 +503,13 @@ def bench_llamacpp(m, gpu_config, prompt, max_tokens, mtp_n=0, mtp_pmin=0.75, ti
 
     mtp_tag = f" +mtp{mtp_n}" if mtp_n > 0 else ""
     print(f"    starting llama-server ({gpu_config}{mtp_tag}) ...", end=" ", flush=True)
-    with llama_server(m["gguf"], gpu_config, mtp_n=mtp_n, mtp_pmin=mtp_pmin):
+    with llama_server(m["gguf"], gpu_config, mtp_n=mtp_n, mtp_pmin=mtp_pmin,
+                       flash_attn=flash_attn, mmap=mmap) as proc:
         print("ready")
         requests.post(url, json=warmup, timeout=300)
         vram = VramSampler(); vram.start()
         pwr  = PowerSampler(); pwr.start()
+        ram  = RamSampler(pid=proc.pid); ram.start()
         runs = []
         for i in range(REPEATS):
             print(f"    run {i+1}/{REPEATS} ...", end=" ", flush=True)
@@ -476,12 +528,13 @@ def bench_llamacpp(m, gpu_config, prompt, max_tokens, mtp_n=0, mtp_pmin=0.75, ti
             runs.append({"decode_tok_per_s": dtps, "prompt_tok_per_s": ptps,
                          "ttft_s": ttft,
                          "n_generated": d.get("usage", {}).get("completion_tokens", 0)})
-        vram.stop(); pwr.stop()
+        vram.stop(); pwr.stop(); ram.stop()
 
     avg = lambda k: sum(x[k] for x in runs) / len(runs)
     return {"ok": True, "load_time_s": None, "peak_vram_mib": vram.peak,
             "peak_watts": pwr.peak, "avg_watts": pwr.avg,
             "power_gpus": sorted(pwr.supported), "power_n": pwr.n_gpus,
+            "peak_ram_mib": ram.peak, "ram_total_mib": ram.total_mib,
             "decode_tok_per_s": avg("decode_tok_per_s"),
             "prompt_tok_per_s": avg("prompt_tok_per_s"),
             "ttft_s": avg("ttft_s"), "n_generated": runs[0]["n_generated"]}
@@ -501,6 +554,9 @@ def print_result(r):
                   f"({r['avg_watts']/max(r['decode_tok_per_s'],0.001):.2f} W/tok·s⁻¹){note}")
         for gpu, mib in sorted((r.get("peak_vram_mib") or {}).items()):
             print(f"    GPU {gpu}   {mib/1024:>5.1f} GiB")
+        if r.get("peak_ram_mib"):
+            pct = r["peak_ram_mib"] / r["ram_total_mib"] * 100 if r.get("ram_total_mib") else 0
+            print(f"    ram     {r['peak_ram_mib']/1024:>5.1f} GiB peak  ({pct:.1f}% of {r['ram_total_mib']/1024:.0f} GB)")
     else:
         print(f"    FAILED: {r.get('error', '?')}")
 
@@ -564,12 +620,14 @@ def cmd_bench(args):
     label = "_".join([m["id"]] + (tiers if len(tiers) < 3 else []) +
                      (["_".join(gpu_cfgs)] if args.backend != "ollama" else []))
     with _log_session(label):
-        _cmd_bench_inner(m, backends, tiers, gpu_cfgs, gguf_size, mtp_n=getattr(args, "mtp_n", 0))
+        _cmd_bench_inner(m, backends, tiers, gpu_cfgs, gguf_size, mtp_n=getattr(args, "mtp_n", 0),
+                          flash_attn=getattr(args, "flash_attn", "on"), mmap=getattr(args, "mmap", "on"))
 
 
-def _cmd_bench_inner(m, backends, tiers, gpu_cfgs, gguf_size, mtp_n=0):
+def _cmd_bench_inner(m, backends, tiers, gpu_cfgs, gguf_size, mtp_n=0, flash_attn="on", mmap="on"):
     _title = f"{m['id']}  —  {m['name']}"
     print(f"\n{'='*max(55,len(_title)+4)}\n  {_title}\n{'='*max(55,len(_title)+4)}")
+    print(f"  moe: {m.get('moe', False)}")
 
     for tier in tiers:
         prompt     = BENCH_PROMPTS[tier]
@@ -591,16 +649,18 @@ def _cmd_bench_inner(m, backends, tiers, gpu_cfgs, gguf_size, mtp_n=0):
                 print(f"  [llamacpp] gguf not found: {m['gguf']}")
             else:
                 for cfg in gpu_cfgs:
-                    mtp_tag = f" +mtp{mtp_n}" if mtp_n > 0 else ""
-                    print(f"\n  [llamacpp | {cfg}{mtp_tag}]")
+                    mtp_tag = f" mtp={mtp_n}" if mtp_n > 0 else ""
+                    print(f"\n  [llamacpp | cfg={cfg} fa={flash_attn} mmap={mmap}{mtp_tag}]")
                     try:
-                        r = _add_bandwidth(bench_llamacpp(m, cfg, prompt, max_tokens, mtp_n=mtp_n, tier=tier), gguf_size, cfg)
+                        r = _add_bandwidth(bench_llamacpp(m, cfg, prompt, max_tokens, mtp_n=mtp_n, tier=tier,
+                                                           flash_attn=flash_attn, mmap=mmap), gguf_size, cfg)
                         r["gpu_config"] = cfg
                     except (TimeoutError, RuntimeError, FileNotFoundError) as e:
                         print(f"    → {e}")
                         r = {"ok": False, "error": str(e), "gpu_config": cfg}
                     print_result(r)
-                    save_result({**m, "backend": "llamacpp", "prompt_tier": tier, "mtp_n": mtp_n, **r})
+                    save_result({**m, "backend": "llamacpp", "prompt_tier": tier, "mtp_n": mtp_n,
+                                 "flash_attn": flash_attn, "mmap": mmap, **r})
 
     print(f"\n  results → {RESULTS_CSV}")
 
@@ -613,7 +673,8 @@ def cmd_run_all(args):
     with _log_session(label):
         for m in MODELS:
             gguf_size = m["gguf"].stat().st_size / 1e9 if m["gguf"].exists() else None
-            _cmd_bench_inner(m, backends, tiers, gpu_cfgs, gguf_size, mtp_n=getattr(args, "mtp_n", 0))
+            _cmd_bench_inner(m, backends, tiers, gpu_cfgs, gguf_size, mtp_n=getattr(args, "mtp_n", 0),
+                              flash_attn=getattr(args, "flash_attn", "on"), mmap=getattr(args, "mmap", "on"))
 
 
 def cmd_results(_args):
@@ -632,16 +693,22 @@ def cmd_results(_args):
 
     has_mtp = any(r.get("mtp_n","0") not in ("0","") for r in ok)
     mtp_hdr = f" {'mtp':>4}" if has_mtp else ""
-    print(f"\n  {'id':<24} {'tier':<9} {'backend':<10} {'gpu':<9}{mtp_hdr}"
+    has_fa  = any(r.get("flash_attn","on") not in ("", "on") for r in ok)
+    fa_hdr  = f" {'fa':>3}" if has_fa else ""
+    has_mm  = any(r.get("mmap","on") not in ("", "on") for r in ok)
+    mm_hdr  = f" {'mmap':>4}" if has_mm else ""
+    print(f"\n  {'id':<24} {'tier':<9} {'backend':<10} {'gpu':<9}{mtp_hdr}{fa_hdr}{mm_hdr}"
           f" {'decode t/s':>10} {'prompt t/s':>11} {'TTFT s':>7} {'bw%':>6}")
-    print("  " + "─" * (92 + (5 if has_mtp else 0)))
+    print("  " + "─" * (92 + (5 if has_mtp else 0) + (4 if has_fa else 0) + (5 if has_mm else 0)))
     for r in ok:
         def f(k, fmt):
             try: return fmt.format(float(r[k]))
             except: return f"{'—':>8}"
         mtp_col = f" {r.get('mtp_n','0'):>4}" if has_mtp else ""
+        fa_col  = f" {r.get('flash_attn','on'):>3}" if has_fa else ""
+        mm_col  = f" {r.get('mmap','on'):>4}" if has_mm else ""
         print(f"  {r.get('id','?'):<24} {r.get('prompt_tier','?'):<9}"
-              f" {r.get('backend','?'):<10} {r.get('gpu_config','?'):<9}{mtp_col}"
+              f" {r.get('backend','?'):<10} {r.get('gpu_config','?'):<9}{mtp_col}{fa_col}{mm_col}"
               f" {f('decode_tok_per_s','{:>10.1f}')}"
               f" {f('prompt_tok_per_s','{:>11.0f}')}"
               f" {f('ttft_s','{:>7.3f}')}"
@@ -674,6 +741,10 @@ def main():
     pb.add_argument("--mtp",         type=int, default=0, dest="mtp_n",
                     metavar="N",
                     help="MTP draft tokens (0=disabled; try 3–5 for ~2× decode speed)")
+    pb.add_argument("--flash-attn",  choices=["on", "off"], default="on", dest="flash_attn",
+                    help="llama.cpp flash attention (default: on)")
+    pb.add_argument("--mmap",        choices=["on", "off"], default="on",
+                    help="llama.cpp mmap for model weights (default: on)")
 
     pa = sub.add_parser("run-all", help="Benchmark all models")
     pa.add_argument("--backend",     choices=["ollama", "llamacpp", "both"], default="both")
@@ -683,6 +754,10 @@ def main():
     pa.add_argument("--mtp",         type=int, default=0, dest="mtp_n",
                     metavar="N",
                     help="MTP draft tokens (0=disabled)")
+    pa.add_argument("--flash-attn",  choices=["on", "off"], default="on", dest="flash_attn",
+                    help="llama.cpp flash attention (default: on)")
+    pa.add_argument("--mmap",        choices=["on", "off"], default="on",
+                    help="llama.cpp mmap for model weights (default: on)")
 
     args = p.parse_args()
     {"gpus": cmd_gpus, "models": cmd_models, "register": cmd_register,

@@ -17,20 +17,23 @@ LOGS_DIR    = ROOT / "results" / "logs"
 METRICS_DIR = ROOT / "results" / "metrics"
 
 FIELDS = [
-    "log_file", "model", "tier", "backend", "gpu_config",
+    "log_file", "model", "moe", "tier", "backend", "gpu_config",
+    "flash_attn", "mmap",
     "run_1_decode_tok_s", "run_1_prompt_tok_s", "run_1_ttft_s",
     "run_2_decode_tok_s", "run_2_prompt_tok_s", "run_2_ttft_s",
     "decode_tok_s", "prompt_tok_s", "ttft_s",
     "bw_gb_s", "bw_pct",
     "gpu0_gib", "gpu1_gib",
     "avg_watts", "peak_watts",
+    "peak_ram_gib", "ram_total_gib",
 ]
 
 # ── Regex patterns ─────────────────────────────────────────────────────────────
 RE_MODEL     = re.compile(r"^={3,}\s*$")
 RE_MODEL_NAME= re.compile(r"^\s{2}(\S.*\S|\S)\s*$")
 RE_TIER      = re.compile(r"── tier:\s*(\w+)")
-RE_BLOCK_LC  = re.compile(r"\[llamacpp \| (\S+)\]")
+RE_MOE       = re.compile(r"^\s*moe:\s*(True|False)\s*$")
+RE_BLOCK_LC  = re.compile(r"\[llamacpp \| cfg=(\S+) fa=(\S+) mmap=(\S+)(?:\s+mtp=\S+)?\]")
 RE_BLOCK_OL  = re.compile(r"\[ollama\]")
 RE_RUN       = re.compile(
     r"run (\d+)/\d+\s*\.\.\.\s*([\d.]+) tok/s\s+\(prompt\s+([\d.]+) tok/s\s+TTFT\s+([\d.]+)s\)"
@@ -40,6 +43,7 @@ RE_PROMPT    = re.compile(r"prompt\s+([\d.]+)\s+tok/s\s+TTFT\s+([\d.]+)s")
 RE_BW        = re.compile(r"bw\s+([\d.]+)\s+GB/s\s+\(([\d.]+)%")
 RE_GPU       = re.compile(r"GPU\s+(\d+)\s+([\d.]+)\s+GiB")
 RE_POWER     = re.compile(r"power\s+([\d.]+)W avg\s+([\d.]+)W peak")
+RE_RAM       = re.compile(r"ram\s+([\d.]+) GiB peak\s+\([\d.]+% of ([\d.]+) GB\)")
 
 
 def parse_log(path: Path) -> list[dict]:
@@ -47,6 +51,7 @@ def parse_log(path: Path) -> list[dict]:
     lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
 
     model      = ""
+    moe        = "False"
     tier       = ""
     in_sep     = False   # just saw a === line
     cur: dict | None = None
@@ -68,6 +73,7 @@ def parse_log(path: Path) -> list[dict]:
                 flush()
                 cur = None
                 in_sep = True
+                moe = "False"   # reset; overwritten by the model's "moe:" line if present
             i += 1
             continue
 
@@ -75,6 +81,13 @@ def parse_log(path: Path) -> list[dict]:
             m = RE_MODEL_NAME.match(line)
             if m:
                 model = m.group(1).strip()
+            i += 1
+            continue
+
+        # moe flag (printed once per model, right after the title block)
+        m = RE_MOE.match(line)
+        if m:
+            moe = m.group(1)
             i += 1
             continue
 
@@ -92,9 +105,12 @@ def parse_log(path: Path) -> list[dict]:
             cur = {f: None for f in FIELDS}
             cur["log_file"]   = path.name
             cur["model"]      = model
+            cur["moe"]        = moe
             cur["tier"]       = tier
             cur["backend"]    = "llamacpp"
             cur["gpu_config"] = m.group(1)
+            cur["flash_attn"] = m.group(2)
+            cur["mmap"]       = m.group(3)
             i += 1
             continue
 
@@ -104,6 +120,7 @@ def parse_log(path: Path) -> list[dict]:
             cur = {f: None for f in FIELDS}
             cur["log_file"]   = path.name
             cur["model"]      = model
+            cur["moe"]        = moe
             cur["tier"]       = tier
             cur["backend"]    = "ollama"
             cur["gpu_config"] = "auto"
@@ -160,6 +177,14 @@ def parse_log(path: Path) -> list[dict]:
         if m:
             cur["avg_watts"]  = float(m.group(1))
             cur["peak_watts"] = float(m.group(2))
+            i += 1
+            continue
+
+        # system RAM
+        m = RE_RAM.search(line)
+        if m:
+            cur["peak_ram_gib"]  = float(m.group(1))
+            cur["ram_total_gib"] = float(m.group(2))
             i += 1
             continue
 

@@ -45,6 +45,7 @@ NUMERIC_FIELDS = [
     "decode_tok_s", "prompt_tok_s", "ttft_s",
     "bw_gb_s", "bw_pct", "gpu0_gib", "gpu1_gib",
     "avg_watts", "peak_watts",
+    "peak_ram_gib", "ram_total_gib",
 ]
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -59,6 +60,11 @@ def parse_model(s):
 
 def is_moe(mid):
     return any(x in mid for x in ("moe", "a3b", "a4b"))
+
+def is_thinking_off(mid):
+    # convention: a thinking-disabled variant's id ends in "-nothink",
+    # registered as its own MODELS[] entry alongside the thinking-on original
+    return mid.endswith("-nothink")
 
 def is_spill(cfg, gpu0, gpu1):
     return (cfg == "single0" and gpu0 > 14.5) or (cfg == "single1" and gpu1 > 14.5)
@@ -77,7 +83,11 @@ def load_data():
             if not row.get("decode_tok_s"):
                 continue
             mid, display, quant = parse_model(row["model"])
-            key = (mid, row["tier"], row["backend"], row["gpu_config"])
+            # fold in flash_attn/mmap so off-default runs get their own bucket
+            # instead of corrupting the on/on rolling average dashboard cells use
+            fa   = row.get("flash_attn") or "on"
+            mmap = row.get("mmap") or "on"
+            key = (mid, row["tier"], row["backend"], row["gpu_config"], fa, mmap)
             all_rows.setdefault(key, []).append(
                 {**row, "mid": mid, "display": display, "quant": quant}
             )
@@ -114,7 +124,7 @@ def build_tiers(rows):
             for cfg_try in ("single0", "single1", "ollama"):
                 be  = "ollama"   if cfg_try == "ollama" else "llamacpp"
                 gcf = "auto"     if cfg_try == "ollama" else cfg_try
-                r = rows.get((mid, tier, be, gcf))
+                r = rows.get((mid, tier, be, gcf, "on", "on"))
                 if r and r.get("bw_gb_s") and r.get("decode_tok_s"):
                     try:
                         gguf = round(float(r["bw_gb_s"]) / float(r["decode_tok_s"]), 1)
@@ -123,10 +133,10 @@ def build_tiers(rows):
                         pass
 
             def cell(be, cfg, _mid=mid, _tier=tier):
-                r = rows.get((_mid, _tier, be, cfg))
+                r = rows.get((_mid, _tier, be, cfg, "on", "on"))
                 if not r:
                     return {"decode": None, "prefill": None, "ttft": None,
-                            "bw": None, "watts": None, "spill": False, "runs": 0}
+                            "bw": None, "watts": None, "ram": None, "spill": False, "runs": 0}
                 g0 = float(r.get("gpu0_gib") or 0)
                 g1 = float(r.get("gpu1_gib") or 0)
                 spill = is_spill(cfg, g0, g1)
@@ -139,8 +149,8 @@ def build_tiers(rows):
                         f = float(v)
                     except (ValueError, TypeError):
                         return None
-                    # treat 0 as no-data for power (pynvml not installed)
-                    if f <= 0 and k in ("avg_watts", "peak_watts"):
+                    # treat 0 as no-data (pynvml/psutil not installed)
+                    if f <= 0 and k in ("avg_watts", "peak_watts", "peak_ram_gib"):
                         return None
                     return round(f, digits)
 
@@ -150,16 +160,23 @@ def build_tiers(rows):
                     "ttft":    fv("ttft_s", 3),
                     "bw":      fv("bw_gb_s"),
                     "watts":   fv("avg_watts"),
+                    "ram":     fv("peak_ram_gib"),
                     "spill":   spill,
                     "runs":    r.get("_runs", 1),
                 }
+
+            # prefer the explicit "moe" column; fall back to id substring
+            # matching for older CSVs written before that column existed
+            moe_col = any_row.get("moe")
+            moe = (moe_col == "True") if moe_col not in (None, "", "None") else is_moe(mid)
 
             tier_rows.append({
                 "id":     mid,
                 "model":  any_row["display"],
                 "quant":  any_row["quant"],
                 "gguf":   gguf,
-                "moe":    is_moe(mid),
+                "moe":    moe,
+                "nothink": is_thinking_off(mid),
                 "ollama": cell("ollama",   "auto"),
                 "gpu0":   cell("llamacpp", "single0"),
                 "gpu1":   cell("llamacpp", "single1"),
@@ -173,7 +190,7 @@ def build_tiers(rows):
 
 # ── Stats ─────────────────────────────────────────────────────────────────────
 def compute_global_max(tiers):
-    maxes = {"decode": 0.0, "prefill": 0.0, "ttft": 0.001, "bw": 0.0, "watts": 1.0}
+    maxes = {"decode": 0.0, "prefill": 0.0, "ttft": 0.001, "bw": 0.0, "watts": 1.0, "ram": 1.0}
     for tier_data in tiers.values():
         for row in tier_data["rows"]:
             for col in ("ollama", "gpu0", "gpu1", "dual", "tensor"):
@@ -279,6 +296,7 @@ td.col-model{{padding:10px 14px;min-width:200px;vertical-align:middle}}
 .model-badges{{display:flex;gap:5px;margin-top:4px;flex-wrap:wrap}}
 .badge{{font-family:var(--mono);font-size:10px;padding:1px 6px;border-radius:2px;background:var(--surf);border:1px solid var(--border);color:var(--muted);letter-spacing:.04em}}
 .badge.moe{{border-color:#3a2855;color:#a070d0;background:#1a1020}}
+.badge.nothink{{border-color:#2a3a2a;color:#70a080;background:#101a10}}
 td.col-val{{padding:9px 14px 4px;text-align:right;min-width:90px}}
 .cell-inner{{font-family:var(--mono);font-size:14px;font-weight:600;display:flex;align-items:center;justify-content:flex-end;gap:4px}}
 .cell-inner.best{{font-size:15px}}
@@ -441,6 +459,9 @@ const METRICS = [
   {{id:'watts',   label:'Power',     unit:'W avg', higher:false, fmt:v=>v.toFixed(1),
     hint:'Average GPU power draw (both GPUs total) during inference — lower = more efficient',
     nodata: {no_watts_data}}},
+  {{id:'ram',     label:'RAM',       unit:'GiB',   higher:false, fmt:v=>v.toFixed(1),
+    hint:'Peak resident RAM of the inference process — spikes when VRAM overflow spills to system memory',
+    nodata: {no_ram_data}}},
 ];
 
 let activeMet  = 'decode';
@@ -498,6 +519,7 @@ function renderTable(){{
         ${{row.gguf?`<span class="badge">${{row.gguf}} GB</span>`:''}}
         <span class="badge">${{row.quant}}</span>
         ${{row.moe?'<span class="badge moe">MoE</span>':''}}
+        ${{row.nothink?'<span class="badge nothink">no-think</span>':''}}
       </div></td>`;
 
     COLS.forEach(c=>{{
@@ -575,10 +597,13 @@ def main():
     gmax = compute_global_max(tiers)
     peak_tps, peak_model, best_lift, lift_desc, n_models = compute_stats(tiers)
 
-    # detect whether any watts data exists
+    # detect whether any watts/ram data exists
     has_watts = gmax["watts"] > 1.0
     if not has_watts:
         gmax["watts"] = 1.0  # prevent div-by-zero in JS
+    has_ram = gmax["ram"] > 1.0
+    if not has_ram:
+        gmax["ram"] = 1.0  # prevent div-by-zero in JS
 
     import datetime
     date = datetime.date.today().isoformat()
@@ -595,6 +620,7 @@ def main():
         global_max_json= json.dumps(gmax, separators=(",", ":")),
         tiers_json     = json.dumps(tiers, separators=(",", ":")),
         no_watts_data  = "true" if not has_watts else "false",
+        no_ram_data    = "true" if not has_ram else "false",
     )
 
     out = DOCS_DIR / "index.html"
@@ -603,6 +629,8 @@ def main():
     print(f"  {n_models} models · {len(tiers)} tiers · peak {peak_tps:.1f} tok/s")
     if not has_watts:
         print("  note: no GPU power data found in CSVs (requires pynvml + new benchmark run)")
+    if not has_ram:
+        print("  note: no RAM data found in CSVs (requires psutil + new benchmark run)")
 
 if __name__ == "__main__":
     main()

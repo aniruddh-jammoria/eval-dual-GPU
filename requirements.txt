@@ -1,2 +1,3 @@
 requests
 pynvml
+psutil
