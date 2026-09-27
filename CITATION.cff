@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+message: "If you use this benchmark harness or its data, please cite it as below."
+title: "Dual RTX 5060 Ti LLM Inference Benchmark"
+abstract: >-
+  Benchmark harness and dataset for local LLM inference on an asymmetric
+  consumer dual-GPU system (PCIe 5.0 x8 + chipset PCIe 4.0 x2), comparing
+  single-GPU, layer-split and tensor-split configurations across llama.cpp
+  and Ollama, with per-repetition telemetry (throughput, latency, PCIe
+  traffic, energy).
+type: software
+authors:
+  - family-names: Jammoria
+    given-names: Aniruddh
+repository-code: "https://github.com/aniruddh-jammoria/eval-dual-GPU"
+url: "https://aniruddh-jammoria.github.io/eval-dual-GPU/"
+keywords:
+  - LLM inference
+  - benchmark
+  - multi-GPU
+  - tensor parallelism
+  - PCIe
+  - llama.cpp
+version: 0.2.0
+date-released: "2026-09-27"
