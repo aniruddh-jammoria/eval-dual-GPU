@@ -50,6 +50,11 @@ def parse_log(path: Path) -> list[dict]:
     rows = []
     lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
 
+    # v2 sessions write structured runs/metrics CSVs directly — their logs are
+    # human-readable only; re-parsing would clobber the real metrics CSV
+    if lines and lines[0].startswith("# schema: v2"):
+        return []
+
     model      = ""
     moe        = "False"
     tier       = ""

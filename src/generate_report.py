@@ -10,25 +10,15 @@ Config:
 """
 
 import csv, json, re, sys
-from pathlib import Path
 
-ROOT        = Path(__file__).resolve().parent.parent   # repo root (src/ lives under it)
-METRICS_DIR = ROOT / "results" / "metrics"
+from config import METRICS_DIR, MODELS, ROOT
+
 DOCS_DIR    = ROOT / "docs"
 
 # ── Config ────────────────────────────────────────────────────────────────────
 RUNCOUNT = 2   # latest N sessions to average per cell key
 
-MODEL_ORDER = [
-    "gemma4-12b-qat",
-    "qwen3.5-9b-q4",
-    "qwen3.5-9b-q8",
-    "qwen3.6-27b-q4",
-    "qwen3.6-27b-q6",
-    "gemma4-26b-moe-q4",
-    "qwen3.6-35b-a3b-q4",
-    "gemma4-31b-q5",
-]
+MODEL_ORDER = [m["id"] for m in MODELS]   # models.toml order = dashboard row order
 
 TIER_META = {
     "chat":    ("~540 tok in · 512 max out",
@@ -332,7 +322,7 @@ footer a{{color:var(--muted)}}footer a:hover{{color:var(--text)}}
         <div class="eyebrow">LLM Inference Benchmark</div>
         <h1>Dual RTX 5060 Ti <span>/ 16 GB</span></h1>
         <div class="hw-chips">
-          <span class="chip gpu0"><b>GPU0</b> MSI VENTUS 2X OC &middot; PCIe 4.0 x16 (CPU)</span>
+          <span class="chip gpu0"><b>GPU0</b> MSI VENTUS 2X OC &middot; PCIe 5.0 x8 (CPU)</span>
           <span class="chip gpu1"><b>GPU1</b> ASUS DUAL OC &middot; PCIe 4.0 x2 (chipset)</span>
           <span class="chip"><b>CPU</b> AMD Ryzen 9 7900</span>
           <span class="chip"><b>RAM</b> 32 GB DDR5</span>
@@ -410,7 +400,7 @@ footer a{{color:var(--muted)}}footer a:hover{{color:var(--text)}}
         </li>
         <li class="finding">
           <span class="finding-label">PCIe lanes</span>
-          <span class="finding-body">GPU0 (PCIe 4.0 x16 from CPU, 32 GB/s) outperforms GPU1 (PCIe 4.0 x2 from chipset, 4 GB/s) by <strong>1&ndash;8%</strong> in decode for VRAM-resident models. For spilling models, both GPUs are <strong>identical</strong> despite the 8&times; PCIe bandwidth gap &mdash; the bottleneck is CPU-side computation on off-GPU layers, not PCIe transfer. TTFT is slower on GPU1 for large prompts due to chipset pipeline latency.</span>
+          <span class="finding-body">GPU0 (PCIe 5.0 x8 from CPU, ~32 GB/s) outperforms GPU1 (PCIe 4.0 x2 from chipset, 4 GB/s) by <strong>1&ndash;8%</strong> in decode for VRAM-resident models. For spilling models, both GPUs are <strong>identical</strong> despite the 8&times; PCIe bandwidth gap &mdash; the bottleneck is CPU-side computation on off-GPU layers, not PCIe transfer. TTFT is slower on GPU1 for large prompts due to chipset pipeline latency.</span>
         </li>
         <li class="finding">
           <span class="finding-label">Backend</span>

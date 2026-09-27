@@ -1,0 +1,12 @@
+# Machine-specific paths. Copy to config.toml (gitignored) and edit.
+# Every key can also be overridden by an environment variable of the same name.
+# Missing keys fall back to: GGUF_DIR=./models, LLAMACPP_BIN=llama-server on PATH.
+
+GGUF_DIR      = "D:/llama-models"
+LLAMACPP_BIN  = "D:/llama.cpp/llama-server.exe"
+LLAMACPP_PORT = 8080
+OLLAMA_API    = "http://localhost:11434"
+
+# Rated per-GPU memory bandwidth (GB/s), used for bandwidth-% of peak.
+# RTX 5060 Ti = 672, RTX 5090 = 1792, RTX 4090 = 1008.
+GPU_BW_PEAK_GBS = 672.0

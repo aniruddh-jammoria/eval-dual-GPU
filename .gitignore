@@ -23,3 +23,7 @@ Thumbs.db
 # Editor
 .vscode/
 *.code-workspace
+
+# Machine-specific config (see config.example.toml)
+config.toml
+results/summary.csv

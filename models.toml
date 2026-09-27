@@ -1,0 +1,55 @@
+# Model registry — the single place to add a model.
+#
+# Adding a model: drop the GGUF into GGUF_DIR, add a [[model]] block here, then
+#   python src/run.py models            # verify file found + inspect architecture
+#   python src/run.py register <id>     # only if benchmarking via Ollama
+#   python src/run.py bench <id>
+#
+# Fields:
+#   id          short unique id used on the CLI, in CSVs and on the dashboard
+#   name        display name ("Family Size Variant (QUANT)") — quant in parens is parsed by the dashboard
+#   file        GGUF filename relative to GGUF_DIR
+#   ollama_tag  optional, defaults to "eval/<id>"
+#   moe         optional — auto-detected from GGUF metadata (expert_count > 0); set only to override
+#
+# Order here is the dashboard row order.
+
+[[model]]
+id   = "gemma4-12b-qat"
+name = "Gemma 4 12B IT QAT (Q4_0)"
+file = "gemma-4-12b-it-qat-q4_0.gguf"
+
+[[model]]
+id   = "qwen3.5-9b-q4"
+name = "Qwen3.5 9B (Q4_K_M)"
+file = "Qwen3.5-9B-Q4_K_M.gguf"
+
+[[model]]
+id   = "qwen3.5-9b-q8"
+name = "Qwen3.5 9B (Q8_0)"
+file = "Qwen3.5-9B-Q8_0.gguf"
+
+[[model]]
+id   = "qwen3.6-27b-q4"
+name = "Qwen3.6 27B (Q4_K_M)"
+file = "Qwen3.6-27B-Q4_K_M.gguf"
+
+[[model]]
+id   = "qwen3.6-27b-q6"
+name = "Qwen3.6 27B (Q6_K)"
+file = "Qwen3.6-27B-Q6_K.gguf"
+
+[[model]]
+id   = "gemma4-26b-moe-q4"
+name = "Gemma 4 26B A4B IT MoE UD (Q4_K_M)"
+file = "gemma-4-26B-A4B-it-UD-Q4_K_M.gguf"
+
+[[model]]
+id   = "qwen3.6-35b-a3b-q4"
+name = "Qwen3.6 35B A3B MoE UD (Q4_K_M)"
+file = "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"
+
+[[model]]
+id   = "gemma4-31b-q5"
+name = "Gemma 4 31B IT UD (Q5_K_XL)"
+file = "gemma-4-31B-it-UD-Q5_K_XL.gguf"

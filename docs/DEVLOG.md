@@ -2,6 +2,25 @@
 
 Newest entries first. Major decisions live in [adr/](adr/).
 
+## 2026-09-27 — Protocol overhaul for the paper (v0.2.0), paper outline, first releases
+
+**Type:** feature / analysis
+**Context:** The repo is becoming a portfolio piece and the basis of a self-published paper (Zenodo, then arXiv cs.DC/cs.PF). A methodology review found the 0.1.0 data couldn't support citable claims: 2 repetitions with no variance, run-2 prefill served from warm KV cache, output length varying per model, a bandwidth metric that exceeded physical peak for MoE, Ollama mislabelled as GPU0-only, failed runs silently missing, and no record of software versions.
+
+**What was done:**
+- Wrote [paper/OUTLINE.md](paper/OUTLINE.md): research questions, section plan, experiments A–K (slot swap, link-bandwidth sweep, cloud 5090 and symmetric dual-GPU references, Linux control), methodology fixes M1–M11, submission checklist.
+- Implemented M1–M5, M7–M9, M11 (see CHANGELOG 0.2.0). Structural change: results are written directly as per-repetition CSVs instead of regex-parsed from logs — see [adr/0002](adr/0002-structured-per-repetition-results.md). New modules: `config.py` (paths + `models.toml` registry), `telemetry.py`, `model_info.py` (GGUF header introspection via the `gguf` package), `summarize.py`.
+- M6 turned out mostly solvable in software: GPU0 now reports NVML power (the old "NotSupported" comment is stale — likely fixed by a driver update), and both cards expose a hardware energy counter, so per-request energy is exact.
+- Smoke-tested on the rig (Qwen3.5 9B Q4, n=2) and deliberately triggered the known Gemma 12B tensor-split crash to verify failure recording; test outputs deleted.
+- Tagged v0.1.0 retroactively on the 2026-07-10 commit and v0.2.0 for this work; added `CITATION.cff` and an "⚠ Affects measurements" changelog convention.
+
+**Findings worth keeping:**
+- PCIe links measured under load: GPU0 = **5.0 x8** (the card is x8-electrical), GPU1 = **4.0 x2**. The README's "4.0 x16" was wrong.
+- Tensor split during decode moves only ~170–350 MB/s per GPU over PCIe (<10% of the x2 link), while tensor-split *prefill* is ~1.6× slower than single-GPU — consistent with "decode is latency-bound, prefill is link-bound".
+- Gemma 12B tensor split crashes in llama.cpp b9858 (`GGML_ASSERT` in `ggml-backend-meta.cpp`) — a reason to update llama.cpp once before collecting final data, then freeze it.
+
+**Outcome:** Harness ready for final data collection pending a llama.cpp update. Not yet tested on Linux (M11). Open: LICENSE choice (needed for Zenodo), figure scripts (M10), final model list.
+
 ## 2026-07-10 — RAM tracking, flash-attn/mmap config axes, explicit MoE tagging
 
 **Type:** feature
