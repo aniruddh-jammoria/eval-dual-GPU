@@ -1,0 +1,159 @@
+# schema: v2
+# 2026-09-29_00-15-40_sweep_qwen3.5-9b-q4_single0_dual_dual_tensor
+
+  harness v0.2.0 (989e20582f) (DIRTY — uncommitted changes)  |  driver 591.86  |  llama.cpp 0.5.0-dev (build 11146, commit 7fe450e19)
+  GPU0 NVIDIA GeForce RTX 5060 Ti  00000000:01:00.0  PCIe max gen5 x16  limit 180W  power ok
+  GPU1 NVIDIA GeForce RTX 5060 Ti  00000000:06:00.0  PCIe max gen4 x16  limit 180W  power ok
+  seed 20260929001024  repeats 5  warmup 1  ignore_eos on
+
+=======================================================
+  qwen3.5-9b-q4  —  Qwen3.5 9B (Q4_K_M)
+=======================================================
+  qwen35  layers=32  hidden=4096  moe=False  read/token=5.10 GB  GGUF=5.67 GB
+  lengths [512, 2048, 4096, 8192]  gen 128  n_ctx 8448  unit order: single0, dual_tensor, dual
+
+  [llamacpp | cfg=single0 fa=on mmap=on]
+    starting llama-server ... ready in 3.1s
+
+    ── pp4096 ──
+    run 1/5 ... 68.3 tok/s  (prompt 2891 tok/s  TTFT 1.42s  n=128)
+    run 2/5 ... 68.2 tok/s  (prompt 2901 tok/s  TTFT 1.41s  n=128)
+    run 3/5 ... 68.2 tok/s  (prompt 2892 tok/s  TTFT 1.42s  n=128)
+    run 4/5 ... 68.2 tok/s  (prompt 2894 tok/s  TTFT 1.42s  n=128)
+    run 5/5 ... 68.4 tok/s  (prompt 2885 tok/s  TTFT 1.42s  n=128)
+    decode     68.2 ± 0.1 tok/s   (CV 0.2%, n=5)
+    prompt     2893 ± 7.4 tok/s  TTFT 1.416s
+    vram    GPU0 8.2G  GPU1 0.3G   on GPUs [0]
+    energy  2.60 J/tok decode  (178 W, GPUs 0,1)
+
+    ── pp2048 ──
+    run 1/5 ... 69.2 tok/s  (prompt 2832 tok/s  TTFT 0.72s  n=128)
+    run 2/5 ... 69.5 tok/s  (prompt 2833 tok/s  TTFT 0.72s  n=128)
+    run 3/5 ... 69.4 tok/s  (prompt 2841 tok/s  TTFT 0.72s  n=128)
+    run 4/5 ... 69.3 tok/s  (prompt 2833 tok/s  TTFT 0.72s  n=128)
+    run 5/5 ... 69.4 tok/s  (prompt 2833 tok/s  TTFT 0.72s  n=128)
+    decode     69.4 ± 0.1 tok/s   (CV 0.1%, n=5)
+    prompt     2835 ± 4.4 tok/s  TTFT 0.723s
+    vram    GPU0 8.2G  GPU1 0.3G   on GPUs [0]
+    energy  2.53 J/tok decode  (172 W, GPUs 0,1)
+
+    ── pp512 ──
+    run 1/5 ... 69.7 tok/s  (prompt 2579 tok/s  TTFT 0.20s  n=128)
+    run 2/5 ... 69.7 tok/s  (prompt 2658 tok/s  TTFT 0.19s  n=128)
+    run 3/5 ... 69.5 tok/s  (prompt 2634 tok/s  TTFT 0.19s  n=128)
+    run 4/5 ... 69.0 tok/s  (prompt 2611 tok/s  TTFT 0.20s  n=128)
+    run 5/5 ... 70.0 tok/s  (prompt 2636 tok/s  TTFT 0.19s  n=128)
+    decode     69.6 ± 0.4 tok/s   (CV 0.5%, n=5)
+    prompt     2624 ± 37.3 tok/s  TTFT 0.195s
+    vram    GPU0 8.2G  GPU1 0.3G   on GPUs [0]
+    energy  2.42 J/tok decode  (163 W, GPUs 0,1)
+
+    ── pp8192 ──
+    run 1/5 ... 67.0 tok/s  (prompt 2870 tok/s  TTFT 2.85s  n=128)
+    run 2/5 ... 67.0 tok/s  (prompt 2869 tok/s  TTFT 2.86s  n=128)
+    run 3/5 ... 66.9 tok/s  (prompt 2868 tok/s  TTFT 2.86s  n=128)
+    run 4/5 ... 67.0 tok/s  (prompt 2868 tok/s  TTFT 2.86s  n=128)
+    run 5/5 ... 67.0 tok/s  (prompt 2868 tok/s  TTFT 2.86s  n=128)
+    decode     67.0 ± 0.1 tok/s   (CV 0.1%, n=5)
+    prompt     2869 ± 1.1 tok/s  TTFT 2.856s
+    vram    GPU0 8.2G  GPU1 0.3G   on GPUs [0]
+    energy  2.70 J/tok decode  (181 W, GPUs 0,1)
+
+  [llamacpp | cfg=dual_tensor fa=on mmap=on]
+    starting llama-server ... ready in 3.1s
+
+    ── pp8192 ──
+    run 1/5 ... 97.4 tok/s  (prompt 1898 tok/s  TTFT 4.32s  n=128)
+    run 2/5 ... 97.2 tok/s  (prompt 1898 tok/s  TTFT 4.32s  n=128)
+    run 3/5 ... 98.4 tok/s  (prompt 1898 tok/s  TTFT 4.32s  n=128)
+    run 4/5 ... 98.1 tok/s  (prompt 1900 tok/s  TTFT 4.31s  n=128)
+    run 5/5 ... 97.5 tok/s  (prompt 1896 tok/s  TTFT 4.32s  n=128)
+    decode     97.7 ± 0.6 tok/s   (CV 0.5%, n=5)
+    prompt     1898 ± 1.5 tok/s  TTFT 4.316s
+    vram    GPU0 5.6G  GPU1 3.3G   on GPUs [0,1]
+    energy  2.02 J/tok decode  (196 W, GPUs 0,1)
+
+    ── pp512 ──
+    run 1/5 ... 100.3 tok/s  (prompt 1622 tok/s  TTFT 0.32s  n=128)
+    run 2/5 ... 102.2 tok/s  (prompt 1624 tok/s  TTFT 0.32s  n=128)
+    run 3/5 ... 101.9 tok/s  (prompt 1627 tok/s  TTFT 0.31s  n=128)
+    run 4/5 ... 101.8 tok/s  (prompt 1625 tok/s  TTFT 0.32s  n=128)
+    run 5/5 ... 101.7 tok/s  (prompt 1628 tok/s  TTFT 0.31s  n=128)
+    decode    101.6 ± 0.9 tok/s   (CV 0.7%, n=5)
+    prompt     1625 ± 2.9 tok/s  TTFT 0.315s
+    vram    GPU0 5.6G  GPU1 3.3G   on GPUs [0,1]
+    energy  2.17 J/tok decode  (228 W, GPUs 0,1)
+
+    ── pp4096 ──
+    run 1/5 ... 98.8 tok/s  (prompt 1873 tok/s  TTFT 2.19s  n=128)
+    run 2/5 ... 99.1 tok/s  (prompt 1873 tok/s  TTFT 2.19s  n=128)
+    run 3/5 ... 99.7 tok/s  (prompt 1873 tok/s  TTFT 2.19s  n=128)
+    run 4/5 ... 99.7 tok/s  (prompt 1873 tok/s  TTFT 2.19s  n=128)
+    run 5/5 ... 99.1 tok/s  (prompt 1873 tok/s  TTFT 2.19s  n=128)
+    decode     99.3 ± 0.5 tok/s   (CV 0.4%, n=5)
+    prompt     1873 ± 0.4 tok/s  TTFT 2.187s
+    vram    GPU0 5.7G  GPU1 3.3G   on GPUs [0,1]
+    energy  2.02 J/tok decode  (201 W, GPUs 0,1)
+
+    ── pp2048 ──
+    run 1/5 ... 100.5 tok/s  (prompt 1812 tok/s  TTFT 1.13s  n=128)
+    run 2/5 ... 100.5 tok/s  (prompt 1814 tok/s  TTFT 1.13s  n=128)
+    run 3/5 ... 100.9 tok/s  (prompt 1813 tok/s  TTFT 1.13s  n=128)
+    run 4/5 ... 100.5 tok/s  (prompt 1814 tok/s  TTFT 1.13s  n=128)
+    run 5/5 ... 101.1 tok/s  (prompt 1808 tok/s  TTFT 1.13s  n=128)
+    decode    100.7 ± 0.4 tok/s   (CV 0.3%, n=5)
+    prompt     1812 ± 2.9 tok/s  TTFT 1.130s
+    vram    GPU0 5.6G  GPU1 3.3G   on GPUs [0,1]
+    energy  1.94 J/tok decode  (196 W, GPUs 0,1)
+
+  [llamacpp | cfg=dual fa=on mmap=on]
+    starting llama-server ... ready in 3.1s
+
+    ── pp8192 ──
+    run 1/5 ... 65.0 tok/s  (prompt 4115 tok/s  TTFT 1.99s  n=128)
+    run 2/5 ... 65.1 tok/s  (prompt 4106 tok/s  TTFT 2.00s  n=128)
+    run 3/5 ... 65.2 tok/s  (prompt 4110 tok/s  TTFT 1.99s  n=128)
+    run 4/5 ... 65.3 tok/s  (prompt 4103 tok/s  TTFT 2.00s  n=128)
+    run 5/5 ... 65.3 tok/s  (prompt 4094 tok/s  TTFT 2.00s  n=128)
+    decode     65.2 ± 0.2 tok/s   (CV 0.2%, n=5)
+    prompt     4106 ± 10.0 tok/s  TTFT 1.995s
+    vram    GPU0 5.4G  GPU1 3.6G   on GPUs [0,1]
+    energy  3.28 J/tok decode  (218 W, GPUs 0,1)
+
+    ── pp2048 ──
+    run 1/5 ... 66.9 tok/s  (prompt 2709 tok/s  TTFT 0.76s  n=128)
+    run 2/5 ... 67.3 tok/s  (prompt 2728 tok/s  TTFT 0.75s  n=128)
+    run 3/5 ... 66.9 tok/s  (prompt 2725 tok/s  TTFT 0.75s  n=128)
+    run 4/5 ... 66.5 tok/s  (prompt 2711 tok/s  TTFT 0.76s  n=128)
+    run 5/5 ... 66.5 tok/s  (prompt 2700 tok/s  TTFT 0.76s  n=128)
+    decode     66.8 ± 0.5 tok/s   (CV 0.5%, n=5)
+    prompt     2715 ± 14.6 tok/s  TTFT 0.754s
+    vram    GPU0 5.4G  GPU1 3.6G   on GPUs [0,1]
+    energy  2.91 J/tok decode  (195 W, GPUs 0,1)
+
+    ── pp4096 ──
+    run 1/5 ... 65.6 tok/s  (prompt 3477 tok/s  TTFT 1.18s  n=128)
+    run 2/5 ... 65.7 tok/s  (prompt 3503 tok/s  TTFT 1.17s  n=128)
+    run 3/5 ... 65.6 tok/s  (prompt 3489 tok/s  TTFT 1.17s  n=128)
+    run 4/5 ... 65.2 tok/s  (prompt 3472 tok/s  TTFT 1.18s  n=128)
+    run 5/5 ... 65.8 tok/s  (prompt 3499 tok/s  TTFT 1.17s  n=128)
+    decode     65.6 ± 0.2 tok/s   (CV 0.3%, n=5)
+    prompt     3488 ± 16.4 tok/s  TTFT 1.174s
+    vram    GPU0 5.4G  GPU1 3.6G   on GPUs [0,1]
+    energy  3.20 J/tok decode  (210 W, GPUs 0,1)
+
+    ── pp512 ──
+    run 1/5 ... 67.7 tok/s  (prompt 2442 tok/s  TTFT 0.21s  n=128)
+    run 2/5 ... 67.8 tok/s  (prompt 2465 tok/s  TTFT 0.21s  n=128)
+    run 3/5 ... 67.7 tok/s  (prompt 2448 tok/s  TTFT 0.21s  n=128)
+    run 4/5 ... 67.6 tok/s  (prompt 2460 tok/s  TTFT 0.21s  n=128)
+    run 5/5 ... 68.0 tok/s  (prompt 2452 tok/s  TTFT 0.21s  n=128)
+    decode     67.8 ± 0.2 tok/s   (CV 0.2%, n=5)
+    prompt     2453 ± 11.5 tok/s  TTFT 0.209s
+    vram    GPU0 5.4G  GPU1 3.6G   on GPUs [0,1]
+    energy  2.78 J/tok decode  (189 W, GPUs 0,1)
+
+  runs    → D:\Projects\dual-gpu-eval\results\runs\2026-09-29_00-15-40_sweep_qwen3.5-9b-q4_single0_dual_dual_tensor.csv
+  metrics → D:\Projects\dual-gpu-eval\results\metrics\2026-09-29_00-15-40_sweep_qwen3.5-9b-q4_single0_dual_dual_tensor.csv
+  env     → D:\Projects\dual-gpu-eval\results\runs\2026-09-29_00-15-40_sweep_qwen3.5-9b-q4_single0_dual_dual_tensor.env.json
+  log     → D:\Projects\dual-gpu-eval\results\logs\2026-09-29_00-15-40_sweep_qwen3.5-9b-q4_single0_dual_dual_tensor.log
