@@ -178,7 +178,16 @@ python src/run.py bench qwen3.5-9b-q4 --repeats 10 --seed 42
 python src/run.py run-all --models qwen3.5-9b-q4 gemma4-12b-qat --backend llamacpp
 ```
 
-Protocol flags (`bench` and `run-all`): `--repeats` (5), `--warmup` (1), `--seed`, `--no-shuffle`, `--cooldown` (10 s), `--max-start-temp` (55 °C), `--ignore-eos {on,off}` (on).
+### Prompt-length sweep
+
+```bash
+python src/run.py sweep qwen3.5-9b-q4                                   # 128 … 8192-token prompts
+python src/run.py sweep qwen3.5-9b-q4 --lengths 512 4096 --gpu-configs single0 dual_tensor
+```
+
+llama.cpp only. Sends exact-length token prompts (raw `/completion`, no chat template) and generates `--gen-tokens` (128) per request, so prefill speed and TTFT can be compared across GPU configs as prompt length grows. Context is sized once per server for the longest prompt, so VRAM is constant across lengths. Results land in the same `results/runs/` files with tier `pp<N>`; summarise with `python src/summarize.py`. Defaults to `single0 dual dual_tensor`.
+
+Protocol flags (`bench`, `run-all` and `sweep`): `--repeats` (5), `--warmup` (1), `--seed`, `--no-shuffle`, `--cooldown` (10 s), `--max-start-temp` (55 °C), `--ignore-eos {on,off}` (on).
 
 `--flash-attn {on,off}` and `--mmap {on,off}` (both default `on`) toggle llama.cpp's flash attention and mmap for weight loading — useful for isolating their effect on decode speed, TTFT, and RAM. Recorded per-run but not yet a dashboard column; compare via `python src/run.py results`.
 

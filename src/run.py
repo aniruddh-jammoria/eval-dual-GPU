@@ -13,6 +13,8 @@ Usage:
   python run.py bench <id> --repeats 10 --seed 7
   python run.py run-all
   python run.py run-all --models qwen3.5-9b-q4 gemma4-12b-qat --backend llamacpp
+  python run.py sweep qwen3.5-9b-q4                     prompt-length sweep (128…8192 tokens)
+  python run.py sweep qwen3.5-9b-q4 --lengths 512 4096 --gpu-configs single0 dual_tensor
   python run.py results                                 legacy results table (see summarize.py)
 
 Protocol (per model): each (backend, gpu_config) "unit" gets a fresh server; units
@@ -49,7 +51,7 @@ from config import (GGUF_DIR, GPU_BW_PEAK_GBS, LLAMACPP_BIN, LLAMACPP_PORT, LOGS
 from model_info import get_info, resolve_moe
 from summarize import describe, write_metrics
 from telemetry import (Sampler, environment, gpu_count, gpu_fields, gpu_temps,
-                       vram_used_mib, wait_cool, write_environment)
+                       vram_used_mib, wait_cool, wait_vram_settle, write_environment)
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
@@ -64,6 +66,10 @@ DEFAULT_COOLDOWN_S    = 10      # pause between units (server restarts)
 DEFAULT_MAX_START_C   = 55      # wait for all GPUs to cool to this before each unit
 REQUEST_TIMEOUT_S     = 1800    # spilling configs at ~4 tok/s × 1024 tokens need headroom
 N_CTX                 = 8192
+UBATCH                = 512     # llama.cpp -ub = upstream default; best layer-split prefill in Exp. X1 (2026-09-29)
+BATCH_MIN             = 2048    # llama.cpp -b default; -b is raised to -ub when -ub is larger
+DEFAULT_SWEEP_LENGTHS = (128, 256, 512, 1024, 2048, 4096, 8192)
+DEFAULT_SWEEP_GEN     = 128     # sweep targets prefill; short decode tail still measures decode at depth
 
 # ── Tee: write to stdout and a log file simultaneously ────────────────────────
 class _Tee:
@@ -153,6 +159,7 @@ RUN_FIELDS = [
     "session", "started_at", "unit_order", "model_id", "model_name", "moe", "gguf_file",
     "backend", "gpu_config", "tier", "rep",
     "flash_attn", "mmap", "mtp_n", "ignore_eos", "cache_prompt", "max_tokens",
+    "n_ctx", "ubatch", "batch",
     "ok", "error", "error_phase",
     "load_time_s", "prompt_n", "cached_n", "n_generated",
     "decode_tok_s", "prefill_tok_s", "ttft_s", "wall_s",
@@ -217,11 +224,17 @@ def _session(label, args):
 def _print_env_banner(env):
     git = env["harness_git"]
     print(f"  harness {git['version']} ({git['commit'][:10]}){' (DIRTY — uncommitted changes)' if git['dirty'] else ''}"
-          f"  |  driver {env['nvidia_driver']}  |  {(env['llamacpp_version'] or 'llama.cpp n/a').splitlines()[0]}")
+          f"  |  driver {env['nvidia_driver']}  |  llama.cpp {_version_line(env['llamacpp_version'])}")
     for g in env["gpus"]:
         print(f"  GPU{g['index']} {g['name']}  {g['pci_bus_id']}  "
               f"PCIe max gen{g['pcie_gen_max']} x{g['pcie_width_max']}  "
               f"limit {g['power_limit_w'] or 0:.0f}W  power {'ok' if g['power_readable'] else 'N/A'}")
+
+def _version_line(text):
+    for line in (text or "").splitlines():
+        if "version" in line.lower():
+            return line.split("version:", 1)[-1].strip()
+    return "n/a"
 
 def _print_failures(rows):
     fails = [r for r in rows if r.get("ok") is False]
@@ -309,7 +322,7 @@ def _ollama_unload_all():
 def _ollama_vram_frac(tag):
     try:
         for m in requests.get(f"{OLLAMA_API}/api/ps", timeout=3).json().get("models", []):
-            if m["name"] == tag and m.get("size"):
+            if m["name"] in (tag, f"{tag}:latest") and m.get("size"):
                 return m.get("size_vram", 0) / m["size"]
     except Exception:
         pass
@@ -336,7 +349,8 @@ def _ollama_request(tag, prompt, max_tokens):
 
 # ── llama-server ──────────────────────────────────────────────────────────────
 @contextmanager
-def llama_server(gguf_path, gpu_config, mtp_n=0, mtp_pmin=0.75, flash_attn="on", mmap="on"):
+def llama_server(gguf_path, gpu_config, mtp_n=0, mtp_pmin=0.75, flash_attn="on", mmap="on",
+                 n_ctx=N_CTX, ubatch=UBATCH):
     if not LLAMACPP_BIN.exists():
         raise FileNotFoundError(f"llama-server not found at {LLAMACPP_BIN} — set LLAMACPP_BIN in config.toml")
 
@@ -344,7 +358,8 @@ def llama_server(gguf_path, gpu_config, mtp_n=0, mtp_pmin=0.75, flash_attn="on",
     env = {**os.environ, "CUDA_VISIBLE_DEVICES": visible, "CUDA_DEVICE_ORDER": "PCI_BUS_ID"}
     cmd = [str(LLAMACPP_BIN), "-m", str(gguf_path), "-ngl", "-1",
            "--port", str(LLAMACPP_PORT), "--host", "127.0.0.1",
-           "-c", str(N_CTX), "--flash-attn", flash_attn, "-ub", "2048", "--log-disable"]
+           "-c", str(n_ctx), "--flash-attn", flash_attn,
+           "-ub", str(ubatch), "-b", str(max(ubatch, BATCH_MIN)), "--log-disable"]
     if mmap == "off":
         cmd += ["--no-mmap"]
     if tensor_split:
@@ -382,6 +397,7 @@ def llama_server(gguf_path, gpu_config, mtp_n=0, mtp_pmin=0.75, flash_attn="on",
                 pass
         if not started:
             raise TimeoutError("llama-server did not become ready within 360s")
+        proc.log_path = log_path
         yield proc
     finally:
         proc.terminate()
@@ -417,12 +433,36 @@ def _llamacpp_request(prompt, max_tokens, ignore_eos):
             "text":          (f"<think>\n{thinking}\n</think>\n\n{content}".strip()
                               if thinking else content)}
 
+def _llamacpp_tokenize(text):
+    r = requests.post(f"http://127.0.0.1:{LLAMACPP_PORT}/tokenize",
+                      json={"content": text, "add_special": False}, timeout=60)
+    r.raise_for_status()
+    return r.json()["tokens"]
+
+def _llamacpp_completion(tokens, max_tokens, ignore_eos):
+    # raw /completion with a token-id prompt: exact prompt length, no chat template
+    payload = {"prompt": tokens, "n_predict": max_tokens, "temperature": 0, "seed": 0,
+               "stream": False, "cache_prompt": False, "ignore_eos": ignore_eos}
+    r = requests.post(f"http://127.0.0.1:{LLAMACPP_PORT}/completion",
+                      json=payload, timeout=REQUEST_TIMEOUT_S)
+    if r.status_code != 200:
+        raise RuntimeError(f"llama-server HTTP {r.status_code}: {r.text[:300]}")
+    d = r.json(); t = d.get("timings", {})
+    return {"decode_tok_s":  t.get("predicted_per_second"),
+            "prefill_tok_s": t.get("prompt_per_second"),
+            "ttft_s":        t.get("prompt_ms", 0) / 1000,
+            "decode_s":      t.get("predicted_ms", 0) / 1000,
+            "prompt_n":      t.get("prompt_n"),
+            "cached_n":      t.get("cache_n"),
+            "n_generated":   t.get("predicted_n"),
+            "text":          d.get("content", "")}
+
 # ── One timed repetition ──────────────────────────────────────────────────────
 def _timed_rep(ctx, rep, request_fn, pid=None, proc_name=None):
     """Run one request under telemetry; returns the runs-CSV row (ok or failed)."""
     base = {**ctx["row"], "rep": rep, "started_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
             "start_temps": ";".join(f"{i}:{t}" for i, t in gpu_temps().items())}
-    prompt = _nonced(ctx["prompt"], ctx["rng"])
+    prompt = ctx["prompt_fn"](ctx["rng"])
     smp = Sampler(pid=pid, proc_name=proc_name).start()
     try:
         res = request_fn(prompt)
@@ -436,7 +476,9 @@ def _timed_rep(ctx, rep, request_fn, pid=None, proc_name=None):
     bw, bw_pct = _bandwidth(ctx["active_bytes"], res["decode_tok_s"],
                             ctx["row"]["gpu_config"], tel["observed_gpus"])
     ctx["session"].save_response(ctx["row"]["model_id"], ctx["row"]["backend"],
-                                 ctx["row"]["gpu_config"], ctx["row"]["tier"], rep, prompt, res["text"])
+                                 ctx["row"]["gpu_config"], ctx["row"]["tier"], rep,
+                                 prompt if isinstance(prompt, str) else f"<{len(prompt)} token ids>",
+                                 res["text"])
     return {**base, **tel, "ok": True,
             **{k: res.get(k) for k in ("decode_tok_s", "prefill_tok_s", "ttft_s",
                                        "prompt_n", "cached_n", "n_generated")},
@@ -445,22 +487,31 @@ def _timed_rep(ctx, rep, request_fn, pid=None, proc_name=None):
             "decode_j_per_tok": (dec_w / res["decode_tok_s"]) if dec_w and res["decode_tok_s"] else None,
             "bw_gb_s": bw, "bw_pct": bw_pct}
 
-def _run_tier(ctx, tier, request_fn, opts, pid=None, proc_name=None):
-    """Warm-up + timed repetitions for one tier of one unit. Returns ok rows."""
+def _tier_jobs(tiers, request_fn):
+    """Standard prompt tiers → jobs: {tier, max_tokens, prompt_fn(rng), request(prompt, n)}."""
+    return [{"tier": t, "max_tokens": MAX_TOKENS_BY_TIER[t], "request": request_fn,
+             "prompt_fn": lambda rng, _t=t: _nonced(BENCH_PROMPTS[_t], rng)} for t in tiers]
+
+def _run_tier(ctx, job, opts, pid=None, proc_name=None):
+    """Warm-up + timed repetitions for one job of one unit. Returns ok rows."""
     s, row = ctx["session"], ctx["row"]
-    max_tokens = MAX_TOKENS_BY_TIER[tier]
-    ctx = {**ctx, "prompt": BENCH_PROMPTS[tier],
+    tier, max_tokens, request_fn = job["tier"], job["max_tokens"], job["request"]
+    ctx = {**ctx, "prompt_fn": job["prompt_fn"],
            "row": {**row, "tier": tier, "max_tokens": max_tokens}}
     print(f"\n    ── {tier} ──")
     for w in range(opts.warmup):
         try:
-            request_fn(_nonced(BENCH_PROMPTS[tier], ctx["rng"]), WARMUP_MAX_TOKENS)
+            request_fn(job["prompt_fn"](ctx["rng"]), WARMUP_MAX_TOKENS)
         except Exception as e:
             print(f"    warm-up failed: {e}")
     ok_rows = []
     for rep in range(1, opts.repeats + 1):
         print(f"    run {rep}/{opts.repeats} ...", end=" ", flush=True)
         r = _timed_rep(ctx, rep, lambda p: request_fn(p, max_tokens), pid=pid, proc_name=proc_name)
+        proc = ctx.get("proc")
+        if not r["ok"] and proc is not None and proc.poll() is not None:
+            r["error"] = (f"llama-server crashed (exit {proc.returncode}) during request.\n"
+                          + _server_log_tail(proc))
         s.record(r)
         if r["ok"]:
             ok_rows.append(r)
@@ -469,6 +520,9 @@ def _run_tier(ctx, tier, request_fn, opts, pid=None, proc_name=None):
                   f"TTFT {r['ttft_s']:.2f}s  n={r['n_generated']}){cache_note}")
         else:
             print(f"FAILED: {r['error'].splitlines()[0][:140]}")
+            for tl in r["error"].splitlines()[1:]:
+                if "assert" in tl.lower() or "error" in tl.lower():
+                    print(f"      {tl.strip()[:200]}")
             if pid is not None and ctx.get("proc") and ctx["proc"].poll() is not None:
                 print("    server died — skipping remaining reps")
                 for rest in range(rep + 1, opts.repeats + 1):
@@ -478,6 +532,12 @@ def _run_tier(ctx, tier, request_fn, opts, pid=None, proc_name=None):
     _print_cell(ok_rows)
     _save_legacy(ctx["row"], ok_rows, ctx)
     return ok_rows
+
+def _server_log_tail(proc, n=1500):
+    try:
+        return proc.log_path.read_text(encoding="utf-8", errors="replace")[-n:]
+    except Exception:
+        return ""
 
 def _print_cell(rows):
     if not rows:
@@ -520,34 +580,38 @@ def _pre_unit(opts):
     if opts.cooldown:
         time.sleep(opts.cooldown)
     temps = wait_cool(opts.max_start_temp)
+    wait_vram_settle()
     return temps
 
-def _unit_llamacpp(ctx, cfg, tiers, opts):
+def _unit_llamacpp(ctx, cfg, opts, make_jobs, labels, n_ctx=N_CTX):
+    """make_jobs(proc) → jobs, called once the server is up (the sweep needs its
+    tokenizer); labels = [(tier, max_tokens)] for recording a startup failure."""
     s = ctx["session"]
     _ollama_unload_all()
     _pre_unit(opts)
     ctx = {**ctx, "baseline_vram": vram_used_mib(),
-           "row": {**ctx["row"], "backend": "llamacpp", "gpu_config": cfg}}
+           "row": {**ctx["row"], "backend": "llamacpp", "gpu_config": cfg,
+                   "n_ctx": n_ctx, "ubatch": opts.ubatch, "batch": max(opts.ubatch, BATCH_MIN)}}
     mtp_tag = f" mtp={opts.mtp_n}" if opts.mtp_n > 0 else ""
     print(f"\n  [llamacpp | cfg={cfg} fa={opts.flash_attn} mmap={opts.mmap}{mtp_tag}]")
     print(f"    starting llama-server ...", end=" ", flush=True)
     t0 = time.perf_counter()
     try:
         with llama_server(ctx["model"]["gguf"], cfg, mtp_n=opts.mtp_n,
-                          flash_attn=opts.flash_attn, mmap=opts.mmap) as proc:
+                          flash_attn=opts.flash_attn, mmap=opts.mmap, n_ctx=n_ctx,
+                          ubatch=opts.ubatch) as proc:
             ctx |= {"load_time_s": time.perf_counter() - t0, "proc": proc}
             print(f"ready in {ctx['load_time_s']:.1f}s")
-            req = lambda p, n: _llamacpp_request(p, n, opts.ignore_eos == "on")
-            for tier in tiers:
-                _run_tier(ctx, tier, req, opts, pid=proc.pid)
+            for job in make_jobs(proc):
+                _run_tier(ctx, job, opts, pid=proc.pid)
     except (TimeoutError, RuntimeError, FileNotFoundError) as e:
         msg = f"{e.__class__.__name__}: {e}"
         print(f"\n    → startup failed: {msg.splitlines()[0][:200]}")
         for tl in (msg.splitlines()[1:] if "crashed" in msg else []):
             if "assert" in tl.lower() or "error" in tl.lower():
                 print(f"      {tl.strip()[:200]}")
-        for tier in tiers:
-            s.record({**ctx["row"], "tier": tier, "max_tokens": MAX_TOKENS_BY_TIER[tier],
+        for tier, max_tokens in labels:
+            s.record({**ctx["row"], "tier": tier, "max_tokens": max_tokens,
                       "rep": 0, "ok": False, "error": msg[-1500:], "error_phase": "startup"})
 
 def _unit_ollama(ctx, tiers, opts):
@@ -573,8 +637,8 @@ def _unit_ollama(ctx, tiers, opts):
         frac = _ollama_vram_frac(m["ollama_tag"])
         ctx["row"]["ollama_vram_frac"] = frac
         req = lambda p, n: _ollama_request(m["ollama_tag"], p, n)
-        for tier in tiers:
-            _run_tier(ctx, tier, req, opts, proc_name="ollama")
+        for job in _tier_jobs(tiers, req):
+            _run_tier(ctx, job, opts, proc_name="ollama")
     except Exception as e:
         msg = f"{e.__class__.__name__}: {e}"
         print(f"    → failed: {msg[:200]}")
@@ -584,7 +648,8 @@ def _unit_ollama(ctx, tiers, opts):
     finally:
         _ollama_unload_all()
 
-def _bench_model(session, m, opts):
+def _model_ctx(session, m, opts):
+    """Print the model header; return the context shared by all of this model's units."""
     info = get_info(m["gguf"])
     moe  = resolve_moe(m, info)
     rng  = random.Random(f"{opts.seed}:{m['id']}")
@@ -595,6 +660,17 @@ def _bench_model(session, m, opts):
               f"moe={moe}  read/token={info['active_bytes']/1e9:.2f} GB  GGUF={info['total_bytes']/1e9:.2f} GB")
     elif not m["gguf"].exists():
         print(f"  gguf not found: {m['gguf']}")
+    return {"session": session, "model": m, "rng": rng,
+            "active_bytes": info["active_bytes"] if info else None,
+            "gguf_gb": m["gguf"].stat().st_size / 1e9 if m["gguf"].exists() else None,
+            "row": {"model_id": m["id"], "model_name": m["name"], "moe": moe,
+                    "gguf_file": m["gguf"].name, "flash_attn": opts.flash_attn, "mmap": opts.mmap,
+                    "mtp_n": opts.mtp_n, "ignore_eos": opts.ignore_eos, "cache_prompt": "off",
+                    "active_bytes": info["active_bytes"] if info else None}}
+
+def _bench_model(session, m, opts):
+    base_ctx = _model_ctx(session, m, opts)
+    rng = base_ctx["rng"]
 
     units = []
     if "ollama" in opts.backends:
@@ -608,13 +684,6 @@ def _bench_model(session, m, opts):
         rng.shuffle(units)
     print(f"  unit order: {', '.join(f'{b}/{c}' for b, c in units)}")
 
-    base_ctx = {"session": session, "model": m, "rng": rng,
-                "active_bytes": info["active_bytes"] if info else None,
-                "gguf_gb": m["gguf"].stat().st_size / 1e9 if m["gguf"].exists() else None,
-                "row": {"model_id": m["id"], "model_name": m["name"], "moe": moe,
-                        "gguf_file": m["gguf"].name, "flash_attn": opts.flash_attn, "mmap": opts.mmap,
-                        "mtp_n": opts.mtp_n, "ignore_eos": opts.ignore_eos, "cache_prompt": "off",
-                        "active_bytes": info["active_bytes"] if info else None}}
     for order, (backend, cfg) in enumerate(units, 1):
         tiers = list(opts.tiers)
         if opts.shuffle:
@@ -623,7 +692,50 @@ def _bench_model(session, m, opts):
         if backend == "ollama":
             _unit_ollama(ctx, tiers, opts)
         else:
-            _unit_llamacpp(ctx, cfg, tiers, opts)
+            req = lambda p, n: _llamacpp_request(p, n, opts.ignore_eos == "on")
+            _unit_llamacpp(ctx, cfg, opts, lambda proc, _t=tiers: _tier_jobs(_t, req),
+                           [(t, MAX_TOKENS_BY_TIER[t]) for t in tiers])
+
+# ── Prompt-length sweep ───────────────────────────────────────────────────────
+# Exact-length token prompts via raw /completion (no chat template), one fresh
+# server per GPU config, context sized once for the longest prompt so KV-cache
+# size — and VRAM — is identical across lengths within a unit. Tier label is
+# "pp<N>" so summarize.py aggregates each length as its own cell.
+def _sweep_tokens(n_max):
+    corpus = _dracula_path.read_text(encoding="utf-8")
+    toks = _llamacpp_tokenize(corpus)
+    reps = -(-n_max // len(toks))            # tile the corpus if the longest prompt needs it
+    return (toks * reps)[:n_max]
+
+def _sweep_model(session, m, opts):
+    base_ctx = _model_ctx(session, m, opts)
+    rng = base_ctx["rng"]
+    if not m["gguf"].exists():
+        print("  [sweep] skipped — gguf not found")
+        return
+    lengths = sorted(set(opts.lengths))
+    n_ctx = -(-(max(lengths) + opts.gen_tokens + 64) // 256) * 256
+    cfgs = list(opts.gpu_configs)
+    if opts.shuffle:
+        rng.shuffle(cfgs)
+    print(f"  lengths {lengths}  gen {opts.gen_tokens}  n_ctx {n_ctx}  unit order: {', '.join(cfgs)}")
+
+    req = lambda toks, n: _llamacpp_completion(toks, n, opts.ignore_eos == "on")
+    def make_jobs(_proc):
+        toks = _sweep_tokens(max(lengths))
+        order = list(lengths)
+        if opts.shuffle:
+            rng.shuffle(order)
+        # rotate the prompt start per repetition so no two requests share a prefix
+        # (belt-and-braces on top of cache_prompt=false)
+        return [{"tier": f"pp{n}", "max_tokens": opts.gen_tokens, "request": req,
+                 "prompt_fn": lambda r, _n=n: (lambda k: (toks[k:] + toks[:k])[:_n])(r.randrange(len(toks)))}
+                for n in order]
+
+    for order, cfg in enumerate(cfgs, 1):
+        ctx = {**base_ctx, "row": {**base_ctx["row"], "unit_order": order}}
+        _unit_llamacpp(ctx, cfg, opts, make_jobs,
+                       [(f"pp{n}", opts.gen_tokens) for n in lengths], n_ctx=n_ctx)
 
 # ── Subcommands ───────────────────────────────────────────────────────────────
 def cmd_gpus(_args):
@@ -686,10 +798,11 @@ def cmd_register(args):
         else:
             print(f"  {m['id']}  FAILED:\n{r.stderr.strip()}")
 
-def _opts(args):
-    args.backends    = ["ollama", "llamacpp"] if args.backend == "both" else [args.backend]
-    args.tiers       = args.tiers or list(BENCH_PROMPTS)
-    args.gpu_configs = args.gpu_configs or list(DEFAULT_GPU_CONFIGS)
+def _opts(args, default_cfgs=DEFAULT_GPU_CONFIGS):
+    backend          = getattr(args, "backend", "llamacpp")
+    args.backends    = ["ollama", "llamacpp"] if backend == "both" else [backend]
+    args.tiers       = getattr(args, "tiers", None) or list(BENCH_PROMPTS)
+    args.gpu_configs = args.gpu_configs or list(default_cfgs)
     args.shuffle     = not args.no_shuffle
     if args.seed is None:
         args.seed = int(time.time())
@@ -711,6 +824,17 @@ def cmd_run_all(args):
         print(f"  seed {opts.seed}  repeats {opts.repeats}  warmup {opts.warmup}  ignore_eos {opts.ignore_eos}")
         for m in models:
             _bench_model(s, m, opts)
+
+SWEEP_DEFAULT_CONFIGS = ("single0", "dual", "dual_tensor")
+
+def cmd_sweep(args):
+    opts = _opts(args, SWEEP_DEFAULT_CONFIGS)
+    models = [get_model(i) for i in opts.ids]
+    label = "sweep_" + "_".join([m["id"] for m in models] + opts.gpu_configs)
+    with _session(label, opts) as s:
+        print(f"  seed {opts.seed}  repeats {opts.repeats}  warmup {opts.warmup}  ignore_eos {opts.ignore_eos}")
+        for m in models:
+            _sweep_model(s, m, opts)
 
 def cmd_results(_args):
     if not RESULTS_CSV.exists():
@@ -756,8 +880,11 @@ def _add_bench_args(p):
     p.add_argument("--backend",     choices=["ollama", "llamacpp", "both"], default="both")
     p.add_argument("--tiers",       nargs="+", choices=list(BENCH_PROMPTS),
                    help="Prompt tiers to run (default: all)")
+    _add_protocol_args(p)
+
+def _add_protocol_args(p, default_cfgs=DEFAULT_GPU_CONFIGS):
     p.add_argument("--gpu-configs", nargs="+", choices=list(GPU_CONFIGS), dest="gpu_configs",
-                   help=f"llama.cpp GPU configs (default: {' '.join(DEFAULT_GPU_CONFIGS)})")
+                   help=f"llama.cpp GPU configs (default: {' '.join(default_cfgs)})")
     p.add_argument("--repeats",     type=int, default=DEFAULT_REPEATS,
                    help=f"timed repetitions per cell (default: {DEFAULT_REPEATS})")
     p.add_argument("--warmup",      type=int, default=DEFAULT_WARMUP,
@@ -778,6 +905,8 @@ def _add_bench_args(p):
                    help="llama.cpp flash attention (default: on)")
     p.add_argument("--mmap",        choices=["on", "off"], default="on",
                    help="llama.cpp mmap for model weights (default: on)")
+    p.add_argument("--ubatch",      type=int, default=UBATCH,
+                   help=f"llama.cpp physical batch -ub (default: {UBATCH}); -b is set to max(-ub, {BATCH_MIN})")
 
 def main():
     p   = argparse.ArgumentParser(description="Dual-GPU LLM benchmark",
@@ -801,9 +930,17 @@ def main():
     pa.add_argument("--models", nargs="+", help="Model ids to include (default: all in models.toml)")
     _add_bench_args(pa)
 
+    ps = sub.add_parser("sweep", help="Prompt-length sweep (llama.cpp only): prefill/decode vs prompt length")
+    ps.add_argument("ids", nargs="+", metavar="id", help="Model id(s)")
+    ps.add_argument("--lengths", nargs="+", type=int, default=list(DEFAULT_SWEEP_LENGTHS),
+                    help=f"prompt lengths in tokens (default: {' '.join(map(str, DEFAULT_SWEEP_LENGTHS))})")
+    ps.add_argument("--gen-tokens", type=int, default=DEFAULT_SWEEP_GEN, dest="gen_tokens",
+                    help=f"tokens generated per request (default: {DEFAULT_SWEEP_GEN})")
+    _add_protocol_args(ps, SWEEP_DEFAULT_CONFIGS)
+
     args = p.parse_args()
     {"gpus": cmd_gpus, "models": cmd_models, "env": cmd_env, "register": cmd_register,
-     "bench": cmd_bench, "run-all": cmd_run_all, "results": cmd_results}[args.cmd](args)
+     "bench": cmd_bench, "run-all": cmd_run_all, "sweep": cmd_sweep, "results": cmd_results}[args.cmd](args)
 
 if __name__ == "__main__":
     main()

@@ -77,6 +77,9 @@ def load_data():
             # instead of corrupting the on/on rolling average dashboard cells use
             fa   = row.get("flash_attn") or "on"
             mmap = row.get("mmap") or "on"
+            # pre-X1 sessions have no ubatch column (they ran -ub 2048); reference is now 512
+            if row.get("ubatch") not in (None, "", "512"):
+                continue    # -ub sensitivity runs (Exp. X1) stay out of the dashboard cells
             key = (mid, row["tier"], row["backend"], row["gpu_config"], fa, mmap)
             all_rows.setdefault(key, []).append(
                 {**row, "mid": mid, "display": display, "quant": quant}

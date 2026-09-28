@@ -12,6 +12,19 @@ comparable. Every session records the harness version (`git describe`) in its
 
 ## [Unreleased]
 
+### Added
+- `--ubatch N` on `bench`/`run-all`/`sweep` sets llama.cpp's `-ub` (and `-b` to at least that); recorded per run and part of each cell's key, so different settings are never averaged together.
+- Environment manifest records Resizable BAR (`bar1_total_mib`), CUDA peer-to-peer capability per GPU pair (`cuda_p2p`) and Windows virtualization-based security state (`windows_vbs`).
+- `run.py sweep <id>`: prompt-length sweep (default 128–8192 tokens) across GPU configs, with exact-length token prompts and a fixed context size per server, to measure how prefill speed and TTFT scale with prompt length under each split mode. Results go to `results/runs/` as tiers `pp<N>`.
+
+### Changed
+- **⚠ Affects measurements.** Default llama.cpp `-ub` changed from 2048 to 512 (the upstream default). A `-ub` sweep showed 2048 hid a 22–55% layer-split prefill advantage on prompts ≥ 2048 tokens; 512 is within ~1% of the best for single-GPU and tensor split.
+
+### Fixed
+- Ollama placement was recorded wrongly when a model was still being unloaded at the start of a configuration; the harness now waits for VRAM to settle before taking the baseline.
+- Ollama's in-VRAM fraction was never recorded (model-name mismatch with the `:latest` suffix).
+- llama-server crashes during a request now report the server's own error (e.g. `GGML_ASSERT`) instead of a generic connection error.
+
 ## [0.2.0] - 2026-09-27
 
 Measurement protocol overhaul in preparation for the paper. Data collected with 0.1.0

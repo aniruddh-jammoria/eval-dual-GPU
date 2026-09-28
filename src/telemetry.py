@@ -11,12 +11,14 @@ environment() — the reproducibility manifest written once per session (M5).
 """
 
 import json
+import os
 import platform
 import socket
 import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
 
 from config import GGUF_DIR, LLAMACPP_BIN, OLLAMA_BIN, ROOT
 
@@ -59,6 +61,24 @@ def vram_used_mib():
     if not _NVML:
         return {}
     return {i: pynvml.nvmlDeviceGetMemoryInfo(h).used / 1024**2 for i, h in _handles().items()}
+
+def wait_vram_settle(timeout_s=30, tol_mib=64, window_s=2.0):
+    """Block until total VRAM use stops changing — a just-unloaded model (e.g.
+    Ollama, whose API reports it gone before the runner frees memory) must not
+    leak into the next unit's baseline. Returns the settled per-GPU usage."""
+    t0, last, stable_since = time.time(), None, None
+    while time.time() - t0 < timeout_s:
+        cur = vram_used_mib()
+        total = sum(cur.values())
+        if last is not None and abs(total - last) <= tol_mib:
+            stable_since = stable_since or time.time()
+            if time.time() - stable_since >= window_s:
+                return cur
+        else:
+            stable_since = None
+        last = total
+        time.sleep(0.5)
+    return vram_used_mib()
 
 def gpu_temps():
     if not _NVML:
@@ -277,10 +297,49 @@ def _gpu_env():
             "pcie_width_max":    _try(lambda: pynvml.nvmlDeviceGetMaxPcieLinkWidth(h)),
             "pcie_gen_idle":     _try(lambda: pynvml.nvmlDeviceGetCurrPcieLinkGeneration(h)),
             "pcie_width_idle":   _try(lambda: pynvml.nvmlDeviceGetCurrPcieLinkWidth(h)),
+            # BAR1 ≈ full VRAM → Resizable BAR on; 256 MiB → off
+            "bar1_total_mib":    _try(lambda: pynvml.nvmlDeviceGetBAR1MemoryInfo(h).bar1Total / 1024**2),
             "power_readable":    _try(lambda: pynvml.nvmlDeviceGetPowerUsage(h)) is not None,
             "energy_readable":   _try(lambda: pynvml.nvmlDeviceGetTotalEnergyConsumption(h)) is not None,
         })
     return out
+
+def _p2p():
+    """CUDA peer-to-peer capability per GPU pair (cudaDeviceCanAccessPeer), using the CUDA
+    runtime shipped next to llama-server. NVML's P2P query returns nothing on GeForce/Windows."""
+    import ctypes, glob
+    cands = (sorted(glob.glob(str(LLAMACPP_BIN.parent / "cudart64_*.dll")))
+             + sorted(glob.glob(str(LLAMACPP_BIN.parent / "libcudart.so*"))) + ["libcudart.so"])
+    for lib in cands:
+        try:
+            if hasattr(os, "add_dll_directory") and lib.endswith(".dll"):
+                os.add_dll_directory(str(Path(lib).parent))
+            cr = ctypes.CDLL(lib)
+            n = ctypes.c_int()
+            if cr.cudaGetDeviceCount(ctypes.byref(n)) != 0:
+                continue
+            out = {}
+            for x in range(n.value):
+                for y in range(n.value):
+                    if x != y:
+                        ok = ctypes.c_int(-1)
+                        rc = cr.cudaDeviceCanAccessPeer(ctypes.byref(ok), x, y)
+                        out[f"{x}->{y}"] = bool(ok.value) if rc == 0 else f"error {rc}"
+            return out
+        except OSError:
+            continue
+    return "cuda runtime not found"
+
+def _windows_vbs():
+    """Virtualization-based security state (uses the IOMMU; can block GPU P2P). None off Windows."""
+    if platform.system() != "Windows":
+        return None
+    out = _cmd_out(["powershell", "-NoProfile", "-Command",
+                    "$d=Get-CimInstance -ClassName Win32_DeviceGuard -Namespace root\\Microsoft\\Windows\\DeviceGuard;"
+                    "\"$($d.VirtualizationBasedSecurityStatus)|$($d.SecurityServicesRunning -join ',')\""])
+    status, _, services = out.partition("|")
+    return {"vbs_status": {"0": "off", "1": "enabled", "2": "running"}.get(status.strip(), status.strip()),
+            "security_services_running": services.strip()}
 
 def _git():
     head  = _cmd_out(["git", "-C", str(ROOT), "rev-parse", "HEAD"])
@@ -304,6 +363,8 @@ def environment(args=None):
         "nvidia_driver":   driver,
         "cuda_driver_api": cuda,
         "gpus":            _gpu_env(),
+        "cuda_p2p":        _p2p(),
+        "windows_vbs":     _windows_vbs(),
         "llamacpp_bin":    str(LLAMACPP_BIN),
         "llamacpp_version": _cmd_out([str(LLAMACPP_BIN), "--version"]) if LLAMACPP_BIN.exists() else None,
         "ollama_version":  _cmd_out([OLLAMA_BIN, "--version"]) if OLLAMA_BIN else None,

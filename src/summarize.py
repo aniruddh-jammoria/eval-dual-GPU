@@ -12,6 +12,7 @@ Usage:
 """
 
 import argparse
+import re
 import csv
 import statistics
 import sys
@@ -24,7 +25,7 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 SUMMARY_CSV = RESULTS_DIR / "summary.csv"
 
 CELL_KEYS = ["model_id", "tier", "backend", "gpu_config",
-             "flash_attn", "mmap", "mtp_n", "ignore_eos"]
+             "flash_attn", "mmap", "mtp_n", "ignore_eos", "ubatch"]
 
 STAT_METRICS = ["decode_tok_s", "prefill_tok_s", "ttft_s", "prompt_n", "n_generated",
                 "wall_s", "energy_j", "decode_watts", "decode_j_per_tok",
@@ -104,7 +105,7 @@ def aggregate(rows):
 # ── Dashboard-compatible metrics CSV (legacy schema + CI columns) ─────────────
 LEGACY_FIELDS = [
     "log_file", "model", "moe", "tier", "backend", "gpu_config",
-    "flash_attn", "mmap",
+    "flash_attn", "mmap", "ubatch",
     "decode_tok_s", "prompt_tok_s", "ttft_s",
     "bw_gb_s", "bw_pct",
     "gpu0_gib", "gpu1_gib",
@@ -130,6 +131,7 @@ def metrics_rows(agg_rows, session):
             "gpu_config":    a["gpu_config"],
             "flash_attn":    a["flash_attn"],
             "mmap":          a["mmap"],
+            "ubatch":        a["ubatch"],
             "decode_tok_s":  a["decode_tok_s_mean"],
             "prompt_tok_s":  a["prefill_tok_s_mean"],
             "ttft_s":        a["ttft_s_mean"],
@@ -177,7 +179,9 @@ def _fmt(mean, ci, digits=1):
     return f"{mean:.{digits}f} ± {ci:.{digits}f}" if ci is not None else f"{mean:.{digits}f}"
 
 def print_table(agg_rows):
-    agg_rows = sorted(agg_rows, key=lambda a: [str(a[k]) for k in CELL_KEYS])
+    # natural sort so sweep tiers order pp128 < pp1024 rather than as strings
+    nat = lambda v: [int(t) if t.isdigit() else t for t in re.split(r"(\d+)", str(v))]
+    agg_rows = sorted(agg_rows, key=lambda a: [nat(a[k]) for k in CELL_KEYS])
     print(f"\n  {'model':<22} {'tier':<8} {'backend':<9} {'gpu':<12} {'n':>3}"
           f" {'decode tok/s':>15} {'CV':>6} {'prefill tok/s':>15} {'TTFT s':>13}"
           f" {'J/tok':>7} {'gpus':>5}  notes")
@@ -188,6 +192,8 @@ def print_table(agg_rows):
             notes.append(f"{a['n_failed']} failed")
         if a["throttled"]:
             notes.append("throttled")
+        if a["ubatch"] not in ("", "512", 512, None):
+            notes.append(f"ub={a['ubatch']}")
         if a["flash_attn"] not in ("", "on") or a["mmap"] not in ("", "on"):
             notes.append(f"fa={a['flash_attn']} mmap={a['mmap']}")
         cv = a["decode_tok_s_cv"]
