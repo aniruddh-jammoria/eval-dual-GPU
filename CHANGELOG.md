@@ -13,11 +13,17 @@ comparable. Every session records the harness version (`git describe`) in its
 ## [Unreleased]
 
 ### Added
+- `run.py decide <ids>`: decision workload — one typed choice question per request over a 256/1024/4096-token state. Native decision models (Clef, Kev, Laya, …) are served through llama.cpp's `/v1/systemone`; general LLMs use a Jev-style emulation (`n_predict: 1`, option probabilities read at one position). Latency per decision, answer and confidence recorded per request.
+- Study model set in `models.toml` (Qwen3.8-27B, Nemotron 3.5 Lightning 30B-A3B, Qwen3.5 9B; decision models Clef, Clef-flash, Kev-4B, Laya) with a `source` field; earlier models kept with `include = false` so `run-all` skips them.
+- Decision models detected from GGUF metadata (`{arch}.decision.type`); shown as `dec` in `run.py models`.
 - `--ubatch N` on `bench`/`run-all`/`sweep` sets llama.cpp's `-ub` (and `-b` to at least that); recorded per run and part of each cell's key, so different settings are never averaged together.
 - Environment manifest records Resizable BAR (`bar1_total_mib`), CUDA peer-to-peer capability per GPU pair (`cuda_p2p`) and Windows virtualization-based security state (`windows_vbs`).
 - `run.py sweep <id>`: prompt-length sweep (default 128–8192 tokens) across GPU configs, with exact-length token prompts and a fixed context size per server, to measure how prefill speed and TTFT scale with prompt length under each split mode. Results go to `results/runs/` as tiers `pp<N>`.
 
 ### Changed
+- **⚠ Affects measurements.** llama-server now runs with `--parallel 1`. llama.cpp v0.6.0 defaults to 4 slots sharing one KV cache, which let earlier prompts exhaust the context mid-run; one slot matches the batch-1 protocol. Recorded per run as `n_parallel`.
+- Reference llama.cpp moved to v0.6.0 (b11429): no version freeze while building the harness; versions are recorded per run and the final evaluation runs on one version.
+- llama-server logging is kept on (to a temp file) so load and assert errors — e.g. tensor split not implemented for an architecture — are recorded in the runs CSV, with colour codes stripped.
 - **⚠ Affects measurements.** Default llama.cpp `-ub` changed from 2048 to 512 (the upstream default). A `-ub` sweep showed 2048 hid a 22–55% layer-split prefill advantage on prompts ≥ 2048 tokens; 512 is within ~1% of the best for single-GPU and tensor split.
 
 ### Fixed

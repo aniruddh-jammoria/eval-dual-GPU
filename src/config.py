@@ -64,6 +64,8 @@ def load_models():
             "gguf":       GGUF_DIR / e["file"],
             "ollama_tag": e.get("ollama_tag", f"eval/{e['id']}"),
             "moe":        e.get("moe"),        # None → resolved from GGUF metadata
+            "include":    e.get("include", True),  # false → run-all skips unless named
+            "source":     e.get("source", ""),
         })
     return models
 

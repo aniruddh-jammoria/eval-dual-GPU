@@ -155,8 +155,8 @@ the reference only if it changes a conclusion — then core runs are redone once
 
 | Setting | Reference value | Notes |
 |---|---|---|
-| llama.cpp | b11146 (v0.5.0), commit 7fe450e19, Windows CUDA 13.4 build | frozen; no NCCL in Windows build (see X2) |
-| NVIDIA driver / Ollama | 591.86 / 0.34.1 | frozen |
+| llama.cpp | latest stable at the time of the run — currently v0.6.0 (b11429), Windows CUDA 13.4 build | not frozen: version recorded per run; **the final evaluation runs once, end-to-end, on a single version**. v0.6.0 adds `/v1/systemone` for decision models. No NCCL in Windows build (see X2). Pilot data so far: b11146 |
+| NVIDIA driver / Ollama | 591.86 / 0.34.1 | recorded per run; keep stable during the final evaluation |
 | Split modes (independent variable) | `none` (single0, single1), `layer` (dual), `tensor` (dual_tensor) | `row` is deprecated upstream — only as X6 fallback |
 | GPU offload | `-ngl -1` (all layers) | spill cases handled by llama.cpp `--fit` default |
 | Context | `-c 8192` (sweep: longest prompt + gen, rounded to 256) | |
@@ -169,6 +169,86 @@ the reference only if it changes a conclusion — then core runs are redone once
 | P2P | unavailable — `cudaDeviceCanAccessPeer` = 0 both ways (2026-09-29) | all inter-GPU traffic goes via host RAM; see X3 |
 | Tensor split ratio | `1,1` | |
 | Sampling | temperature 0, seed 0, `ignore_eos`, `cache_prompt=false` | measurement protocol, not a tuning choice |
+| Server slots | `--parallel 1` | v0.6.0 defaults to 4 slots sharing one KV cache (`kv_unified`), which let earlier prompts exhaust the context (2026-10-05); pinned to 1 for batch-1 runs, recorded as `n_parallel` |
+| Decision workload | `-ub` = context size (one batch); 2 warm-ups per state size | Clef and Laya require the whole prompt in one batch; first request per size was 1.5–2× slower after one warm-up |
+
+### Study model set (chosen 2026-10-05)
+
+| Group | Model | File (source) | Size | Arch | Notes |
+|---|---|---|---|---|---|
+| General | Qwen3.8-27B | Q4_K_M (ggml-org) | 19.0 GB | qwen35, dense | same base/quant/converter as Clef |
+| General | Nemotron 3.5 Lightning 30B-A3B | UD-Q4_K_M (unsloth) | 25.3 GB | nemotron_h_moe (Mamba-2 + MoE, 6/128 experts) | only recent MoE that fits |
+| General (anchor) | Qwen3.5 9B | Q4_K_M (unsloth) | 5.7 GB | qwen35, dense | pilot data; base of Clef-flash |
+| Decision | Clef | Q4_K_M (ggml-org) | 19.2 GB | clef | base Qwen3.8-27B |
+| Decision | Clef-flash | Q4_K_M (ggml-org) | 6.5 GB | clef | base Qwen3.5-9B |
+| Decision | Kev-4B | Q4_K_M (ggml-org) | 3.0 GB | qwen35 + decision head | |
+| Decision | Laya | Q8_0 (ggml-org) | 0.45 GB | modern-bert | non-Qwen encoder |
+
+Downloaded 2026-10-06, SHA-256 verified against Hugging Face; exact repo revisions and hashes in
+`results/model_files.json`.
+
+**Compatibility on llama.cpp v0.6.0 (b11429), checked 2026-10-06** (n=2 smoke checks, not study data):
+
+| Model | single0 | dual (layer) | dual_tensor |
+|---|---|---|---|
+| Qwen3.8-27B | ✓ spills (15.4 GB on GPU0; 8.7 tok/s) | ✓ 20.6 tok/s | ✓ 34.3 tok/s |
+| Nemotron 3.5 Lightning | ✓ spills (51.8 tok/s) | ✓ 106.7 tok/s | ✗ `LLAMA_SPLIT_MODE_TENSOR not implemented for architecture 'nemotron_h_moe'` |
+| Qwen3.5 9B | ✓ 69.7 tok/s | ✓ 68.0 | ✓ 100.8 — matches b11146 (68/67/101) |
+| Clef | ✓ spills (740 ms @256) | ✓ 500 ms @256 | ✗ GGML_ASSERT ggml-backend-meta.cpp:830 |
+| Clef-flash | ✓ | ✓ | ✗ same assert |
+| Kev-4B | ✓ | ✓ | ✓ |
+| Laya | ✓ | ✓ | ✓ |
+| Gemma 4 12B (earlier set) | — | — | ✗ GGML_ASSERT ggml-backend-meta.cpp:547 (still, b9858 → b11429) |
+
+Tensor-split gaps are reported as results (llama.cpp's tensor mode is marked EXPERIMENTAL upstream),
+not worked around. Decision answers are sensible (mostly "dread"/"wonder" on Dracula excerpts).
+
+### Model candidates (pick list, 2026-10-05 — superseded by the study set above)
+
+Sizes are the GGUF file for the listed quant. One card = 16 GB (≈14.5 GB usable for weights + context);
+both cards = 32 GB. "Arch OK" = supported by upstream llama.cpp v0.6.0. Updated 2026-10-05.
+
+**General LLMs — already downloaded (pilot data exists for E1)**
+
+- [ ] E1 · Qwen3.5 9B · Q4_K_M · 5.7 GB · dense · fits one card · pilot anchor, same base as Clef-flash
+- [ ] E2 · Qwen3.5 9B · Q8_0 · 9.5 GB · dense · fits one card · quant pair with E1
+- [ ] E3 · Qwen3.6 27B · Q4_K_M · 16.8 GB · dense · spills one card · dense half of the Qwen dense/MoE pair
+- [ ] E4 · Qwen3.6 27B · Q6_K · 22.5 GB · dense · both cards · quant pair with E3
+- [ ] E5 · Qwen3.6 35B-A3B · Q4_K_M · 22.1 GB · **MoE** (3B active) · both cards · MoE half of the Qwen pair
+- [ ] E6 · Gemma 4 12B QAT · Q4_0 · 7.0 GB · dense · fits one card · tensor split crashes (llama.cpp bug) — re-check on v0.6.0
+- [ ] E7 · Gemma 4 26B-A4B · Q4_K_M · 16.9 GB · **MoE** (4B active) · spills one card · MoE half of the Gemma pair
+- [ ] E8 · Gemma 4 31B · Q5_K_XL · 21.9 GB · dense · both cards · dense half of the Gemma pair
+
+**General LLMs — released Jul–Sep 2026 (to download)**
+
+- [ ] N1 · Qwen3.8-27B (Alibaba, Aug 13) · UD-Q4_K_M · 16.5 GB · dense, vision · spills one card · Apache 2.0 · base of Clef/OpenJev
+- [ ] N2 · Qwen3.8-27B · UD-Q6_K · 22.0 GB · dense · both cards · quant pair with N1
+- [ ] N3 · Muse-Glimmer-30B (Meta, Aug 10) · Q4_K_M · 17.3 GB · dense, vision · spills one card · Apache 2.0 · non-Qwen family at the same size as N1
+- [ ] N4 · Nemotron 3.5 Lightning 30B-A3B (NVIDIA, Aug 12) · UD-Q4_K_M · 25.3 GB · **MoE**, hybrid Mamba-2 · both cards (tight) · NVIDIA open model licence · only recent MoE that fits
+
+**Decision models — single-pass, zero output tokens (need v0.6.0 `/v1/systemone`)**
+
+- [ ] D1 · Clef (Cloudflare, Oct 1) · Q4_K_M · 19.2 GB · Qwen3.8-27B base · **needs both cards** · Apache 2.0 · headline decision case
+- [ ] D2 · Clef-flash (Cloudflare, Oct 1) · Q4_K_M · 6.5 GB · Qwen3.5-9B base · fits one card · Apache 2.0 · same base as E1 (decision vs generation)
+- [ ] D3 · OpenJev (Oct 1) · Q4_K_M · 19.0 GB · Qwen3.8-27B base · both cards · **CC BY-NC** (non-commercial) · same base as Clef
+- [ ] D4 · Kev-4B (Jared Palmer, Oct 1) · Q4_K_M · 3.0 GB · Qwen3.5-4B base · fits one card · Apache 2.0
+- [ ] D5 · lev (interfaze-ai, Oct 1) · Q4_K_M · 3.0 GB · Qwen3.5-4B · fits one card · Apache 2.0 · same size as Kev-4B
+- [ ] D6 · Laya · Q8_0 · 0.45 GB · ModernBERT-large 421M · fits one card · Apache 2.0 · **non-Qwen** encoder
+- [ ] D7 · Julia-1 · Q8_0 · 0.17 GB · mmBERT-small 144M · fits one card · Apache 2.0 · **non-Qwen** encoder
+
+**Considered and excluded (for the paper's model-selection section)**
+
+| Model | Why excluded |
+|---|---|
+| Jev (TypeSafe, Sep 15) | API only, no weights |
+| Jev-Style 0.8B/2B, Jeff (community, Sep 25–29) | need their own scoring binaries / serving stack; superseded by D1–D7 on upstream llama.cpp |
+| Qwen3.8-Flash-Next (Aug 26) | smallest GGUF 72.5 GB > 64 GB VRAM+RAM |
+| Qwen3.8-2.4T-A95B, DeepSeek V4.1 Flash, MiMo-V2.6-Flash, GLM-5.3 | far beyond 32 GB |
+| Kolibri-1 (Aleph Alpha) | general MoE ~79B total, ~45 GB at Q4 — only with heavy CPU offload; not a decision model |
+| Xing4.0-29B-A4B (TeleAI, Sep 22) | architecture not in upstream llama.cpp (PR #29012 still open) |
+| Instella-MoE-16B-A3B (AMD, Aug 1) | needs an experimental llama.cpp branch |
+| Ling-3.1-flash (Ant, late Sep) | no open weights yet |
+| MiniCPM5-2B, MiMo-V2.6-Distill-Qwen-9B | eligibility not verified (architecture/release date) — can check on request |
 
 ### Core experiments (answer the research questions)
 
@@ -287,9 +367,10 @@ Updated 2026-09-29. Tick as you go; Claude handles everything not on this list.
 
 **Now (unblocks the next experiments)**
 - [ ] **BIOS check (Exp. B):** can PCI_E1's PCIe generation be set (Gen1–Gen5)? Del at boot → F7 (Advanced) → Settings → Advanced → PCI Subsystem Settings; look for e.g. "PCI_E1 Gen Switch" / "PCIe Link Speed". Photo of the options. (Resizable BAR, IOMMU/VBS and P2P already measured from Windows — nothing to check for those.)
-- [ ] **Model list:** tell Claude which model families/sizes you're interested in and have bandwidth to download; Claude maps them to the selection criteria in §4, then you download the agreed GGUFs into `D:\llama-models`.
-- [ ] **Freeze software:** turn off automatic updates for the NVIDIA driver (NVIDIA App), Ollama, and Windows Update driver installs until data collection is done. Frozen: llama.cpp b11146, driver 591.86, Ollama 0.34.1.
-- [ ] **Keep the PC idle during runs** (no games/video/other GPU work); runs will be announced with an estimated duration.
+- [x] **Model list:** chosen 2026-10-05, downloaded and verified 2026-10-06 (see "Study model set").
+- [ ] **Avoid surprise updates during the final evaluation:** turn off automatic updates for the NVIDIA driver (NVIDIA App), Ollama, and Windows Update driver installs. Versions are recorded per run either way; the final evaluation should run start-to-finish on one set of versions.
+- [ ] **Keep the PC idle during runs** (no games/video/other GPU work, no large downloads — a background download caused a 39 s outlier on 2026-10-05); runs will be announced with an estimated duration.
+- [ ] **Disable sleep while plugged in** before long runs (currently sleep + hibernate after 2 h idle): Settings → System → Power & battery → Never, or `powercfg /change standby-timeout-ac 0` and `hibernate-timeout-ac 0`.
 
 **Soon**
 - [ ] **Slot swap (Exp. A):** physically swap the two cards between slots for one run session, then swap back. Claude will tell you when.

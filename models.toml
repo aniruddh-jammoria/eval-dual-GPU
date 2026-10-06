@@ -9,47 +9,103 @@
 #   id          short unique id used on the CLI, in CSVs and on the dashboard
 #   name        display name ("Family Size Variant (QUANT)") — quant in parens is parsed by the dashboard
 #   file        GGUF filename relative to GGUF_DIR
+#   source      where the file came from (Hugging Face repo) — documentation only
+#   include     optional, default true; false keeps the model registered (old data stays valid)
+#               but run-all skips it unless named with --models
 #   ollama_tag  optional, defaults to "eval/<id>"
 #   moe         optional — auto-detected from GGUF metadata (expert_count > 0); set only to override
 #
-# Order here is the dashboard row order.
+# Decision models (Clef, Kev, Laya, ...) are detected from GGUF metadata ({arch}.decision.type)
+# and are benchmarked with `run.py decide` via llama-server's /v1/systemone endpoint.
+#
+# Order here is the dashboard row order. Model set chosen 2026-10-05 (see docs/paper/OUTLINE.md).
+
+# ── Study set: general LLMs ───────────────────────────────────────────────────
 
 [[model]]
-id   = "gemma4-12b-qat"
-name = "Gemma 4 12B IT QAT (Q4_0)"
-file = "gemma-4-12b-it-qat-q4_0.gguf"
+id     = "qwen3.8-27b-q4"
+name   = "Qwen3.8 27B (Q4_K_M)"
+file   = "Qwen3.8-27B-Q4_K_M.gguf"
+source = "ggml-org/Qwen3.8-27B-GGUF"           # same converter + quant as Clef (its base model)
 
 [[model]]
-id   = "qwen3.5-9b-q4"
-name = "Qwen3.5 9B (Q4_K_M)"
-file = "Qwen3.5-9B-Q4_K_M.gguf"
+id     = "nemotron3.5-lightning-30b-a3b-q4"
+name   = "Nemotron 3.5 Lightning 30B A3B MoE UD (Q4_K_M)"
+file   = "NVIDIA-Nemotron-3.5-Lightning-30B-A3B-UD-Q4_K_M.gguf"
+source = "unsloth/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-GGUF"
 
 [[model]]
-id   = "qwen3.5-9b-q8"
-name = "Qwen3.5 9B (Q8_0)"
-file = "Qwen3.5-9B-Q8_0.gguf"
+id     = "qwen3.5-9b-q4"
+name   = "Qwen3.5 9B (Q4_K_M)"
+file   = "Qwen3.5-9B-Q4_K_M.gguf"
+source = "unsloth/Qwen3.5-9B-GGUF"             # pilot anchor; base model of Clef-flash
+
+# ── Study set: decision models (/v1/systemone) ───────────────────────────────
 
 [[model]]
-id   = "qwen3.6-27b-q4"
-name = "Qwen3.6 27B (Q4_K_M)"
-file = "Qwen3.6-27B-Q4_K_M.gguf"
+id     = "clef-q4"
+name   = "Clef 27B decision (Q4_K_M)"
+file   = "Clef-Q4_K_M.gguf"
+source = "ggml-org/Clef-GGUF"                  # Cloudflare; base Qwen3.8-27B
 
 [[model]]
-id   = "qwen3.6-27b-q6"
-name = "Qwen3.6 27B (Q6_K)"
-file = "Qwen3.6-27B-Q6_K.gguf"
+id     = "clef-flash-q4"
+name   = "Clef-flash 9B decision (Q4_K_M)"
+file   = "Clef-Flash-Q4_K_M.gguf"
+source = "ggml-org/Clef-Flash-GGUF"            # Cloudflare; base Qwen3.5-9B
 
 [[model]]
-id   = "gemma4-26b-moe-q4"
-name = "Gemma 4 26B A4B IT MoE UD (Q4_K_M)"
-file = "gemma-4-26B-A4B-it-UD-Q4_K_M.gguf"
+id     = "kev-4b-q4"
+name   = "Kev 4B decision (Q4_K_M)"
+file   = "Kev-4B-Q4_K_M.gguf"
+source = "ggml-org/Kev-4B-GGUF"                # base Qwen3.5-4B
 
 [[model]]
-id   = "qwen3.6-35b-a3b-q4"
-name = "Qwen3.6 35B A3B MoE UD (Q4_K_M)"
-file = "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"
+id     = "laya-q8"
+name   = "Laya 421M decision (Q8_0)"
+file   = "Laya-Q8_0.gguf"
+source = "ggml-org/Laya-GGUF"                  # ModernBERT-large encoder (non-Qwen)
+
+# ── Earlier models (2026-07 preliminary data; not in the study set) ──────────
 
 [[model]]
-id   = "gemma4-31b-q5"
-name = "Gemma 4 31B IT UD (Q5_K_XL)"
-file = "gemma-4-31B-it-UD-Q5_K_XL.gguf"
+id      = "gemma4-12b-qat"
+name    = "Gemma 4 12B IT QAT (Q4_0)"
+file    = "gemma-4-12b-it-qat-q4_0.gguf"
+include = false
+
+[[model]]
+id      = "qwen3.5-9b-q8"
+name    = "Qwen3.5 9B (Q8_0)"
+file    = "Qwen3.5-9B-Q8_0.gguf"
+include = false
+
+[[model]]
+id      = "qwen3.6-27b-q4"
+name    = "Qwen3.6 27B (Q4_K_M)"
+file    = "Qwen3.6-27B-Q4_K_M.gguf"
+include = false
+
+[[model]]
+id      = "qwen3.6-27b-q6"
+name    = "Qwen3.6 27B (Q6_K)"
+file    = "Qwen3.6-27B-Q6_K.gguf"
+include = false
+
+[[model]]
+id      = "gemma4-26b-moe-q4"
+name    = "Gemma 4 26B A4B IT MoE UD (Q4_K_M)"
+file    = "gemma-4-26B-A4B-it-UD-Q4_K_M.gguf"
+include = false
+
+[[model]]
+id      = "qwen3.6-35b-a3b-q4"
+name    = "Qwen3.6 35B A3B MoE UD (Q4_K_M)"
+file    = "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"
+include = false
+
+[[model]]
+id      = "gemma4-31b-q5"
+name    = "Gemma 4 31B IT UD (Q5_K_XL)"
+file    = "gemma-4-31B-it-UD-Q5_K_XL.gguf"
+include = false

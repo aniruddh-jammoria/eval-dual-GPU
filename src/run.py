@@ -15,6 +15,7 @@ Usage:
   python run.py run-all --models qwen3.5-9b-q4 gemma4-12b-qat --backend llamacpp
   python run.py sweep qwen3.5-9b-q4                     prompt-length sweep (128…8192 tokens)
   python run.py sweep qwen3.5-9b-q4 --lengths 512 4096 --gpu-configs single0 dual_tensor
+  python run.py decide clef-q4 qwen3.8-27b-q4            decision workload (256/1024/4096-token states)
   python run.py results                                 legacy results table (see summarize.py)
 
 Protocol (per model): each (backend, gpu_config) "unit" gets a fresh server; units
@@ -32,10 +33,13 @@ Outputs per session (<ts>_<label>):
 """
 
 import argparse
+import copy
 import csv
 import json
+import math
 import os
 import random
+import re
 import subprocess
 import sys
 import tempfile
@@ -68,6 +72,8 @@ REQUEST_TIMEOUT_S     = 1800    # spilling configs at ~4 tok/s × 1024 tokens ne
 N_CTX                 = 8192
 UBATCH                = 512     # llama.cpp -ub = upstream default; best layer-split prefill in Exp. X1 (2026-09-29)
 BATCH_MIN             = 2048    # llama.cpp -b default; -b is raised to -ub when -ub is larger
+N_PARALLEL            = 1       # server slots; v0.6.0 defaults to 4 slots sharing one KV cache,
+                                # which lets earlier prompts fill the context — pin to 1 for batch-1 runs
 DEFAULT_SWEEP_LENGTHS = (128, 256, 512, 1024, 2048, 4096, 8192)
 DEFAULT_SWEEP_GEN     = 128     # sweep targets prefill; short decode tail still measures decode at depth
 
@@ -159,12 +165,13 @@ RUN_FIELDS = [
     "session", "started_at", "unit_order", "model_id", "model_name", "moe", "gguf_file",
     "backend", "gpu_config", "tier", "rep",
     "flash_attn", "mmap", "mtp_n", "ignore_eos", "cache_prompt", "max_tokens",
-    "n_ctx", "ubatch", "batch",
+    "n_ctx", "ubatch", "batch", "n_parallel",
     "ok", "error", "error_phase",
     "load_time_s", "prompt_n", "cached_n", "n_generated",
     "decode_tok_s", "prefill_tok_s", "ttft_s", "wall_s",
     "energy_j", "decode_watts", "decode_j_per_tok", "avg_watts", "peak_watts", "power_gpus",
     "throttle", "start_temps", "peak_rss_mib", "observed_gpus", "ollama_vram_frac",
+    "decision_api", "answer", "answer_conf",
     "active_bytes", "bw_gb_s", "bw_pct",
 ]
 
@@ -359,7 +366,10 @@ def llama_server(gguf_path, gpu_config, mtp_n=0, mtp_pmin=0.75, flash_attn="on",
     cmd = [str(LLAMACPP_BIN), "-m", str(gguf_path), "-ngl", "-1",
            "--port", str(LLAMACPP_PORT), "--host", "127.0.0.1",
            "-c", str(n_ctx), "--flash-attn", flash_attn,
-           "-ub", str(ubatch), "-b", str(max(ubatch, BATCH_MIN)), "--log-disable"]
+           "-ub", str(ubatch), "-b", str(max(ubatch, BATCH_MIN)),
+           "--parallel", str(N_PARALLEL)]
+    # server logs go to a temp file (not the console); kept on so load/assert errors
+    # such as "SPLIT_MODE_TENSOR not implemented for architecture" reach the runs CSV
     if mmap == "off":
         cmd += ["--no-mmap"]
     if tensor_split:
@@ -385,7 +395,7 @@ def llama_server(gguf_path, gpu_config, mtp_n=0, mtp_pmin=0.75, flash_attn="on",
             time.sleep(0.5)
             if proc.poll() is not None:
                 stderr_file.flush()
-                err = log_path.read_text(encoding="utf-8", errors="replace")[-1500:]
+                err = _error_lines(log_path.read_text(encoding="utf-8", errors="replace"))
                 raise RuntimeError(f"llama-server crashed (exit {proc.returncode}).\n{err}")
             if tick % 20 == 19:
                 print(f"  {(tick+1)*0.5:.0f}s ...", end=" ", flush=True)
@@ -481,7 +491,8 @@ def _timed_rep(ctx, rep, request_fn, pid=None, proc_name=None):
                                  res["text"])
     return {**base, **tel, "ok": True,
             **{k: res.get(k) for k in ("decode_tok_s", "prefill_tok_s", "ttft_s",
-                                       "prompt_n", "cached_n", "n_generated")},
+                                       "prompt_n", "cached_n", "n_generated",
+                                       "answer", "answer_conf")},
             "load_time_s":      ctx.get("load_time_s"),
             "decode_watts":     dec_w,
             "decode_j_per_tok": (dec_w / res["decode_tok_s"]) if dec_w and res["decode_tok_s"] else None,
@@ -516,8 +527,13 @@ def _run_tier(ctx, job, opts, pid=None, proc_name=None):
         if r["ok"]:
             ok_rows.append(r)
             cache_note = f"  cached {r['cached_n']}!" if r.get("cached_n") else ""
-            print(f"{r['decode_tok_s']:.1f} tok/s  (prompt {r['prefill_tok_s']:.0f} tok/s  "
-                  f"TTFT {r['ttft_s']:.2f}s  n={r['n_generated']}){cache_note}")
+            if r.get("decode_tok_s") is None:     # decision request: no decode phase
+                print(f"decision in {r['ttft_s']*1000:.0f} ms  ({r['prompt_n']} tok, "
+                      f"{r['prefill_tok_s']:.0f} tok/s)  → {r.get('answer')} "
+                      f"p={r.get('answer_conf') or 0:.2f}{cache_note}")
+            else:
+                print(f"{r['decode_tok_s']:.1f} tok/s  (prompt {r['prefill_tok_s']:.0f} tok/s  "
+                      f"TTFT {r['ttft_s']:.2f}s  n={r['n_generated']}){cache_note}")
         else:
             print(f"FAILED: {r['error'].splitlines()[0][:140]}")
             for tl in r["error"].splitlines()[1:]:
@@ -533,9 +549,16 @@ def _run_tier(ctx, job, opts, pid=None, proc_name=None):
     _save_legacy(ctx["row"], ok_rows, ctx)
     return ok_rows
 
+def _error_lines(log, n=1500):
+    """Error/assert lines from a llama-server log (logs are verbose); falls back to the tail."""
+    log = re.sub(r"\x1b\[[0-9;]*m", "", log)            # drop ANSI colour codes
+    keep = [l for l in log.splitlines()
+            if " E " in l or "GGML_ASSERT" in l or "not implemented" in l.lower() or "error" in l.lower()]
+    return ("\n".join(keep) or log)[-n:]
+
 def _server_log_tail(proc, n=1500):
     try:
-        return proc.log_path.read_text(encoding="utf-8", errors="replace")[-n:]
+        return _error_lines(proc.log_path.read_text(encoding="utf-8", errors="replace"), n)
     except Exception:
         return ""
 
@@ -546,8 +569,13 @@ def _print_cell(rows):
     p = describe([r["prefill_tok_s"] for r in rows])
     t = describe([r["ttft_s"] for r in rows])
     ci = lambda x: f" ± {x['ci95']:.1f}" if x["ci95"] is not None else ""
-    print(f"    decode  {d['mean']:>7.1f}{ci(d)} tok/s   (CV {d['cv']*100 if d['cv'] else 0:.1f}%, n={d['n']})")
-    print(f"    prompt  {p['mean']:>7.0f}{ci(p)} tok/s  TTFT {t['mean']:.3f}s")
+    if d["mean"] is not None:
+        print(f"    decode  {d['mean']:>7.1f}{ci(d)} tok/s   (CV {d['cv']*100 if d['cv'] else 0:.1f}%, n={d['n']})")
+        print(f"    prompt  {p['mean']:>7.0f}{ci(p)} tok/s  TTFT {t['mean']:.3f}s")
+    else:                                         # decision rows: latency is the metric
+        ms = describe([r["ttft_s"] * 1000 for r in rows])
+        print(f"    latency {ms['mean']:>7.1f}{ci(ms)} ms/decision   (CV {ms['cv']*100 if ms['cv'] else 0:.1f}%, "
+              f"n={ms['n']}, {1000/ms['mean']:.1f} decisions/s)   prompt {p['mean']:.0f} tok/s")
     last = rows[-1]
     gpus = [k for k in last if k.endswith("_vram_mib") and not k.endswith("delta_mib")]
     vram = "  ".join(f"GPU{k[3:k.index('_')]} {last[k]/1024:.1f}G" for k in sorted(gpus) if last[k])
@@ -591,7 +619,8 @@ def _unit_llamacpp(ctx, cfg, opts, make_jobs, labels, n_ctx=N_CTX):
     _pre_unit(opts)
     ctx = {**ctx, "baseline_vram": vram_used_mib(),
            "row": {**ctx["row"], "backend": "llamacpp", "gpu_config": cfg,
-                   "n_ctx": n_ctx, "ubatch": opts.ubatch, "batch": max(opts.ubatch, BATCH_MIN)}}
+                   "n_ctx": n_ctx, "ubatch": opts.ubatch, "batch": max(opts.ubatch, BATCH_MIN),
+                   "n_parallel": N_PARALLEL}}
     mtp_tag = f" mtp={opts.mtp_n}" if opts.mtp_n > 0 else ""
     print(f"\n  [llamacpp | cfg={cfg} fa={opts.flash_attn} mmap={opts.mmap}{mtp_tag}]")
     print(f"    starting llama-server ...", end=" ", flush=True)
@@ -608,7 +637,7 @@ def _unit_llamacpp(ctx, cfg, opts, make_jobs, labels, n_ctx=N_CTX):
         msg = f"{e.__class__.__name__}: {e}"
         print(f"\n    → startup failed: {msg.splitlines()[0][:200]}")
         for tl in (msg.splitlines()[1:] if "crashed" in msg else []):
-            if "assert" in tl.lower() or "error" in tl.lower():
+            if "assert" in tl.lower() or "error" in tl.lower() or "not implemented" in tl.lower():
                 print(f"      {tl.strip()[:200]}")
         for tier, max_tokens in labels:
             s.record({**ctx["row"], "tier": tier, "max_tokens": max_tokens,
@@ -737,6 +766,116 @@ def _sweep_model(session, m, opts):
         _unit_llamacpp(ctx, cfg, opts, make_jobs,
                        [(f"pp{n}", opts.gen_tokens) for n in lengths], n_ctx=n_ctx)
 
+# ── Decision workload ─────────────────────────────────────────────────────────
+# One typed "choice" question about a state (a Dracula excerpt of ~N tokens).
+# Decision models answer via /v1/systemone (one prefill, decision head, 0 output
+# tokens). General LLMs get the Jev-style emulation: the same state/question/
+# options as a prompt ending in "choice_index:", n_predict=1, option probabilities
+# read from n_probs at that single position. Both are prefill-only workloads.
+# Latency is client wall time per request for both paths — /v1/systemone returns
+# no server timings. Tier label "decide<N>" (N = target state tokens).
+DEFAULT_DECIDE_STATES = (256, 1024, 4096)
+DECIDE_QUESTION = "Which best describes the dominant mood of this passage?"
+DECIDE_OPTIONS  = ["dread", "wonder", "boredom", "humour", "grief", "romance"]
+WORDS_PER_TOKEN = 0.75     # English prose; actual prompt_n is recorded per request
+
+def _is_decision(m):
+    info = get_info(m["gguf"]) if m["gguf"].exists() else None
+    return bool(info and info.get("decision_type"))
+
+def _decide_state(n_tokens, rng):
+    words = _words * 3                                   # tile so any offset has room
+    k = rng.randrange(len(_words))
+    n = max(16, int(n_tokens * WORDS_PER_TOKEN))
+    return f"[ref {rng.getrandbits(32):08x}] " + " ".join(words[k:k + n])
+
+def _systemone_request(state, _max_tokens=None):
+    payload = {"state": state,
+               "questions": {"mood": {"type": "choice", "instructions": DECIDE_QUESTION,
+                                      "criteria": {o: None for o in DECIDE_OPTIONS}}}}
+    t0 = time.perf_counter()
+    r = requests.post(f"http://127.0.0.1:{LLAMACPP_PORT}/v1/systemone",
+                      json=payload, timeout=REQUEST_TIMEOUT_S)
+    wall = time.perf_counter() - t0
+    if r.status_code != 200:
+        raise RuntimeError(f"llama-server HTTP {r.status_code}: {r.text[:300]}")
+    d = r.json()
+    a = d["answers"]["mood"]
+    n_in = d.get("usage", {}).get("input_tokens")
+    return {"decode_tok_s": None, "decode_s": 0, "n_generated": 0, "cached_n": None,
+            "ttft_s": wall, "prompt_n": n_in, "prefill_tok_s": (n_in / wall) if n_in else None,
+            "answer": a.get("choice"), "answer_conf": a.get("confidence"),
+            "text": json.dumps(a)}
+
+def _llm_decide_prompt(state):
+    opts = ", ".join(f'{{"index": {i}, "name": "{o}"}}' for i, o in enumerate(DECIDE_OPTIONS))
+    return (f'{{"state": {json.dumps(state)}, "question": "{DECIDE_QUESTION}", "options": [{opts}]}}\n'
+            f"Answer with the index of the best option.\nchoice_index: ")   # trailing space: next token is the digit
+
+def _llm_decide_request(prompt, _max_tokens=None):
+    payload = {"prompt": prompt, "n_predict": 1, "n_probs": 50, "temperature": 0, "seed": 0,
+               "stream": False, "cache_prompt": False}
+    t0 = time.perf_counter()
+    r = requests.post(f"http://127.0.0.1:{LLAMACPP_PORT}/completion",
+                      json=payload, timeout=REQUEST_TIMEOUT_S)
+    wall = time.perf_counter() - t0
+    if r.status_code != 200:
+        raise RuntimeError(f"llama-server HTTP {r.status_code}: {r.text[:300]}")
+    d = r.json(); t = d.get("timings", {})
+    # option probabilities at the single generated position (renormalised over the options)
+    probs = {}
+    cp = (d.get("completion_probabilities") or [{}])[0]
+    for e in cp.get("top_logprobs") or cp.get("probs") or []:
+        tok = (e.get("token") or e.get("tok_str") or "").strip()
+        p = math.exp(e["logprob"]) if "logprob" in e else e.get("prob", 0)
+        if tok.isdigit() and int(tok) < len(DECIDE_OPTIONS):
+            probs[int(tok)] = probs.get(int(tok), 0) + p
+    total = sum(probs.values())
+    best = max(probs, key=probs.get) if probs else None
+    n_in = t.get("prompt_n")
+    return {"decode_tok_s": None, "decode_s": 0, "n_generated": 0, "cached_n": t.get("cache_n"),
+            "ttft_s": wall, "prompt_n": n_in, "prefill_tok_s": (n_in / wall) if n_in else None,
+            "answer": DECIDE_OPTIONS[best] if best is not None else None,
+            "answer_conf": (probs[best] / total) if best is not None and total else None,
+            "text": json.dumps({DECIDE_OPTIONS[k]: v / total for k, v in probs.items()} if total else {})}
+
+def _decide_model(session, m, opts):
+    base_ctx = _model_ctx(session, m, opts)
+    rng = base_ctx["rng"]
+    if not m["gguf"].exists():
+        print("  [decide] skipped — gguf not found")
+        return
+    native = _is_decision(m)
+    states = sorted(set(opts.states))
+    # context covers the longest state + question/options; decision models such as
+    # Clef and Laya must take the whole prompt in one batch (-ub ≥ prompt), so by
+    # default every model gets -ub = n_ctx here (one batch, comparable across models)
+    n_ctx = -(-(int(max(states) * 1.3) + 512) // 1024) * 1024
+    uopts = copy.copy(opts)
+    if opts.single_batch == "on":
+        uopts.ubatch = n_ctx
+    cfgs = list(opts.gpu_configs)
+    if opts.shuffle:
+        rng.shuffle(cfgs)
+    api = "/v1/systemone" if native else "/completion n_predict=1 (Jev-style emulation)"
+    print(f"  states {states}  n_ctx {n_ctx}  -ub {uopts.ubatch}  api {api}  unit order: {', '.join(cfgs)}")
+
+    req = _systemone_request if native else _llm_decide_request
+    wrap = (lambda s: s) if native else _llm_decide_prompt
+    def make_jobs(_proc):
+        order = list(states)
+        if opts.shuffle:
+            rng.shuffle(order)
+        return [{"tier": f"decide{n}", "max_tokens": 0, "request": req,
+                 "prompt_fn": lambda r, _n=n: wrap(_decide_state(_n, r))} for n in order]
+
+    base_ctx["row"] |= {"decision_api": "systemone" if native else "completion_n1",
+                        "ignore_eos": "", "max_tokens": 0}
+    for order, cfg in enumerate(cfgs, 1):
+        ctx = {**base_ctx, "row": {**base_ctx["row"], "unit_order": order}}
+        _unit_llamacpp(ctx, cfg, uopts, make_jobs,
+                       [(f"decide{n}", 0) for n in states], n_ctx=n_ctx)
+
 # ── Subcommands ───────────────────────────────────────────────────────────────
 def cmd_gpus(_args):
     try:
@@ -768,10 +907,12 @@ def cmd_models(_args):
         reg    = {True: "✓", False: "—", None: "n/a"}[_ollama_registered(m["ollama_tag"])]
         mark   = "✓" if exists else "✗"
         arch   = info["architecture"] if info else "?"
-        moe    = "yes" if resolve_moe(m, info) else "no"
+        moe    = ("dec" if info and info.get("decision_type") else
+                  "yes" if resolve_moe(m, info) else "no")
         rpt    = f"{info['active_bytes']/1e9:.2f}G" if info else "—"
         print(f"  {m['id']:<22} {mark} {m['gguf'].name:<38} {size:>6} {arch:<11} {moe:<4} {rpt:>8}  {reg}")
-    print(f"\n  registry: models.toml   GGUF_DIR: {GGUF_DIR}\n")
+    print(f"\n  moe column: yes = MoE, dec = native decision model (/v1/systemone)")
+    print(f"  registry: models.toml   GGUF_DIR: {GGUF_DIR}\n")
 
 def cmd_env(args):
     print(json.dumps(environment(args), indent=2, default=str))
@@ -819,13 +960,23 @@ def cmd_bench(args):
 
 def cmd_run_all(args):
     opts = _opts(args)
-    models = [get_model(i) for i in opts.models] if opts.models else MODELS
+    models = ([get_model(i) for i in opts.models] if opts.models
+              else [m for m in MODELS if m["include"] and not _is_decision(m)])
     with _session("run-all", opts) as s:
         print(f"  seed {opts.seed}  repeats {opts.repeats}  warmup {opts.warmup}  ignore_eos {opts.ignore_eos}")
         for m in models:
             _bench_model(s, m, opts)
 
 SWEEP_DEFAULT_CONFIGS = ("single0", "dual", "dual_tensor")
+
+def cmd_decide(args):
+    opts = _opts(args, SWEEP_DEFAULT_CONFIGS)
+    models = [get_model(i) for i in opts.ids]
+    label = "decide_" + "_".join([m["id"] for m in models] + opts.gpu_configs)
+    with _session(label, opts) as s:
+        print(f"  seed {opts.seed}  repeats {opts.repeats}  warmup {opts.warmup}  single_batch {opts.single_batch}")
+        for m in models:
+            _decide_model(s, m, opts)
 
 def cmd_sweep(args):
     opts = _opts(args, SWEEP_DEFAULT_CONFIGS)
@@ -938,9 +1089,22 @@ def main():
                     help=f"tokens generated per request (default: {DEFAULT_SWEEP_GEN})")
     _add_protocol_args(ps, SWEEP_DEFAULT_CONFIGS)
 
+    pd = sub.add_parser("decide", help="Decision workload: one typed choice per request, prefill only")
+    pd.add_argument("ids", nargs="+", metavar="id",
+                    help="Model id(s) — decision models use /v1/systemone, LLMs a 1-token emulation")
+    pd.add_argument("--states", nargs="+", type=int, default=list(DEFAULT_DECIDE_STATES),
+                    help=f"target state sizes in tokens (default: {' '.join(map(str, DEFAULT_DECIDE_STATES))})")
+    pd.add_argument("--single-batch", choices=["on", "off"], default="on", dest="single_batch",
+                    help="-ub = context size so the whole prompt is one batch (required by clef/laya; default on)")
+    _add_protocol_args(pd, SWEEP_DEFAULT_CONFIGS)
+    # decisions: the first request at each state size was often 1.5-2x slower after a
+    # single warm-up (2026-10-06 checks), so decide warms up twice by default
+    pd.set_defaults(warmup=2)
+
     args = p.parse_args()
     {"gpus": cmd_gpus, "models": cmd_models, "env": cmd_env, "register": cmd_register,
-     "bench": cmd_bench, "run-all": cmd_run_all, "sweep": cmd_sweep, "results": cmd_results}[args.cmd](args)
+     "bench": cmd_bench, "run-all": cmd_run_all, "sweep": cmd_sweep, "decide": cmd_decide,
+     "results": cmd_results}[args.cmd](args)
 
 if __name__ == "__main__":
     main()

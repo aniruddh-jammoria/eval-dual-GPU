@@ -25,7 +25,7 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 SUMMARY_CSV = RESULTS_DIR / "summary.csv"
 
 CELL_KEYS = ["model_id", "tier", "backend", "gpu_config",
-             "flash_attn", "mmap", "mtp_n", "ignore_eos", "ubatch"]
+             "flash_attn", "mmap", "mtp_n", "ignore_eos", "ubatch", "decision_api"]
 
 STAT_METRICS = ["decode_tok_s", "prefill_tok_s", "ttft_s", "prompt_n", "n_generated",
                 "wall_s", "energy_j", "decode_watts", "decode_j_per_tok",

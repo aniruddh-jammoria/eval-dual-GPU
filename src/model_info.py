@@ -68,6 +68,8 @@ def inspect_gguf(path):
         "expert_count":       n_expert,
         "expert_used_count":  n_expert_used,
         "moe":                n_expert > 0,
+        # native decision models (/v1/systemone) carry {arch}.decision.type metadata
+        "decision_type":      a("decision.type"),
         "tied_output":        tied_output,
         "total_params":       total_params,
         "active_params":      round(active_params),

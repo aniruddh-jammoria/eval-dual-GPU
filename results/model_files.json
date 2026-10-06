@@ -1,0 +1,38 @@
+{
+  "Kev-4B-Q4_K_M.gguf": {
+    "repo": "ggml-org/Kev-4B-GGUF",
+    "revision": "d924f2e2c3872da8b8aaf3eb4453b4126deceb79",
+    "sha256": "33ae6b18926502b2209a1bf7d3b61a350d65938441515c686bb87d226a19eff9",
+    "size": 3033489824
+  },
+  "Laya-Q8_0.gguf": {
+    "repo": "ggml-org/Laya-GGUF",
+    "revision": "22265007700297ba9e128297e82540cf28c5d7d4",
+    "sha256": "c06528c5746d3bb8baa72a27938be95abbfd0b226f8471e8a9e365ed0bb066d2",
+    "size": 449397600
+  },
+  "Clef-Flash-Q4_K_M.gguf": {
+    "repo": "ggml-org/Clef-Flash-GGUF",
+    "revision": "4a192915ef971886004b5b13294f2b4c7a7fc39d",
+    "sha256": "fd3e90605e8103307dca37cb5a8cdb036267e2fe3cb2d908d80a8ceb9ec0638c",
+    "size": 6486448288
+  },
+  "Clef-Q4_K_M.gguf": {
+    "repo": "ggml-org/Clef-GGUF",
+    "revision": "63840a1a68cb7084c88610cffc328509356b04cb",
+    "sha256": "bd9b8ae24c5752a2bb5e2733d5168340d5f04457e02b8bf0d1bc9285ec3d4f61",
+    "size": 19232219200
+  },
+  "Qwen3.8-27B-Q4_K_M.gguf": {
+    "repo": "ggml-org/Qwen3.8-27B-GGUF",
+    "revision": "71bc7b627595dc8a91039addd9c791ae548d6747",
+    "sha256": "c600de0300ae8a0eb3a6c0b8b5561b8b96f16bd2c863c2a66c42de29d391a747",
+    "size": 18973870528
+  },
+  "NVIDIA-Nemotron-3.5-Lightning-30B-A3B-UD-Q4_K_M.gguf": {
+    "repo": "unsloth/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-GGUF",
+    "revision": "f2d3fe3694501008786e81e5f20360cbf715496a",
+    "sha256": "edcb5d4650796ed2fb412498de6f83b585862312c747ddb74f0ea04b22206181",
+    "size": 25266255936
+  }
+}
